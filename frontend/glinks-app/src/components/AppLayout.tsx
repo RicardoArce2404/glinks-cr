@@ -23,32 +23,36 @@ export function AppLayout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen flex w-full bg-background text-foreground">
       <aside
-        className={`${open ? "block" : "hidden"} md:block fixed md:static inset-y-0 left-0 z-30 w-64 bg-card border-r border-border`}
-      >
-        <div className="p-5 border-b border-border">
-          <h1 className="text-lg font-bold tracking-tight">GLinks CR</h1>
-          <p className="text-xs text-muted-foreground">Gestión ISP — Limón, CR</p>
+  className={`${open ? "block" : "hidden"} md:block fixed inset-y-0 left-0 z-30 w-64 bg-card border-r border-border flex flex-col h-screen`}
+>
+        <div className="flex flex-col flex-1">
+          <div className="p-5 border-b border-border">
+            <h1 className="text-lg font-bold tracking-tight">GLinks CR</h1>
+            <p className="text-xs text-muted-foreground">Limón, CR</p>
+          </div>
+
+          <nav className="p-3 space-y-1 overflow-y-auto">
+            {items.map((it) => {
+              const active = path.startsWith(it.to);
+              const Icon = it.icon;
+              return (
+                <Link
+                  key={it.to}
+                  to={it.to}
+                  onClick={() => setOpen(false)}
+                  className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
+                    active ? "bg-primary text-primary-foreground" : "hover:bg-accent text-foreground"
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                  {it.label}
+                </Link>
+              );
+            })}
+          </nav>
         </div>
-        <nav className="p-3 space-y-1">
-          {items.map((it) => {
-            const active = path.startsWith(it.to);
-            const Icon = it.icon;
-            return (
-              <Link
-                key={it.to}
-                to={it.to}
-                onClick={() => setOpen(false)}
-                className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
-                  active ? "bg-primary text-primary-foreground" : "hover:bg-accent text-foreground"
-                }`}
-              >
-                <Icon className="h-4 w-4" />
-                {it.label}
-              </Link>
-            );
-          })}
-        </nav>
-        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-border bg-card">
+
+        <div className="p-4 border-t border-border bg-card">
           <div className="text-sm font-medium">{user?.name}</div>
           <div className="text-xs text-muted-foreground capitalize mb-3">{user?.role}</div>
           <Button variant="outline" size="sm" className="w-full" onClick={logout}>
@@ -57,7 +61,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 md:ml-64">
         <header className="h-14 border-b border-border bg-card flex items-center justify-between px-4 sticky top-0 z-20">
           <Button
             variant="ghost"

@@ -36,17 +36,17 @@ function LoginPage() {
           </div>
           <div>
             <h1 className="text-xl font-bold">GLinks CR</h1>
-            <p className="text-sm text-muted-foreground">Sistema de gestión interna</p>
+            <p className="text-sm text-muted-foreground">Sistema de gestión</p>
           </div>
         </div>
         <form onSubmit={submit} className="space-y-4">
           <div>
             <Label htmlFor="u">Usuario</Label>
-            <Input id="u" value={u} onChange={(e) => setU(e.target.value)} placeholder="admin o tecnico" />
+            <Input id="u" value={u} onChange={(e) => setU(e.target.value)}  />
           </div>
           <div>
             <Label htmlFor="p">Contraseña</Label>
-            <Input id="p" type="password" value={p} onChange={(e) => setP(e.target.value)} placeholder="1234" />
+            <Input id="p" type="password" value={p} onChange={(e) => setP(e.target.value)}  />
           </div>
           <div className="flex items-center gap-2">
             <Checkbox id="r" checked={remember} onCheckedChange={(v) => setRemember(!!v)} />
