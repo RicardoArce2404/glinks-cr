@@ -1,0 +1,140 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Autenticación ───
+
+model User {
+  id        String   @id @default(uuid())
+  username  String   @unique
+  password  String   // bcrypt hash
+  role      Role     @default(admin)
+  name      String
+  createdAt DateTime @default(now())
+
+  mantenimientosFisicos    MantenimientoFisico[]
+  mantenimientosJuridicos MantenimientoJuridico[]
+}
+
+enum Role {
+  admin
+  tecnico
+}
+
+// ─── Gestión de Clientes ───
+// Dos tablas separadas para personas físicas y jurídicas
+
+model ClienteFisico {
+  id               String   @id @default(uuid())
+  cedula           String   @unique
+  nombre           String
+  apellido1        String
+  apellido2        String
+  telefonoPrimario String
+  telefonoSecundario String?
+  email            String?
+  domicilio        String
+  plan             String   // Catálogo: "4-4", "6-6", "8-8"
+  sectorial        String   // Catálogo (antena de gran escala)
+  tipoAP           String   // Catálogo (tipo de punto de acceso)
+  routerId         Int      // ID manual del router asignado
+  poeId            Int      // ID manual del inyector PoE asignado
+  createdAt        DateTime @default(now())
+
+  mantenimientos   MantenimientoFisico[]
+  facturas         Factura[]
+}
+
+model ClienteJuridico {
+  id               String   @id @default(uuid())
+  cedulaJuridica   String   @unique
+  nombreEmpresa    String
+  telefonoPrimario String
+  telefonoSecundario String?
+  domicilio        String
+  email            String?
+  plan             String   // Catálogo: "4-4", "6-6", "8-8"
+  sectorial        String   // Catálogo
+  tipoAP           String   // Catálogo
+  routerId         Int      // ID manual del router asignado
+  poeId            Int      // ID manual del inyector PoE asignado
+  createdAt        DateTime @default(now())
+
+  mantenimientos   MantenimientoJuridico[]
+  facturas         Factura[]
+}
+
+// ─── Gestión de Mantenimiento ───
+
+model MantenimientoFisico {
+  id             String   @id @default(uuid())
+  fecha          DateTime @default(now())
+  descripcion    String
+  responsableId  String
+  clienteFisicoId String
+
+  responsable    User          @relation(fields: [responsableId], references: [id])
+  cliente        ClienteFisico @relation(fields: [clienteFisicoId], references: [id])
+}
+
+model MantenimientoJuridico {
+  id                String   @id @default(uuid())
+  fecha             DateTime @default(now())
+  descripcion       String
+  responsableId     String
+  clienteJuridicoId String
+
+  responsable User           @relation(fields: [responsableId], references: [id])
+  cliente     ClienteJuridico @relation(fields: [clienteJuridicoId], references: [id])
+}
+
+// ─── Gestión de Inventario (Productos) ───
+
+model Producto {
+  id        String   @id @default(uuid())
+  nombre    String
+  tipo      String   // Catálogo: "Router", "PoE", "Tubo metálico", "Antena AP", "Cable", "Otro"
+  serial    String   @unique
+  estado    String   @default("disponible") // "disponible" | "en_uso"
+  stock     Int      @default(0)
+  precio    Float
+  createdAt DateTime @default(now())
+
+  facturaItems FacturaItem[]
+}
+
+// ─── Gestión de Facturación ───
+
+model Factura {
+  id        String   @id @default(uuid())
+  numero    String   @unique
+  fecha     DateTime @default(now())
+  subtotal  Float
+  impuestos Float
+  total     Float
+  estado    String   @default("activa") // "activa" | "anulada"
+
+  clienteFisicoId   String?
+  clienteJuridicoId String?
+
+  clienteFisico   ClienteFisico?   @relation(fields: [clienteFisicoId], references: [id])
+  clienteJuridico ClienteJuridico? @relation(fields: [clienteJuridicoId], references: [id])
+  items           FacturaItem[]
+}
+
+model FacturaItem {
+  id        String @id @default(uuid())
+  facturaId String
+  productoId String
+  nombre    String
+  cantidad  Int
+  precio    Float
+
+  factura  Factura  @relation(fields: [facturaId], references: [id], onDelete: Cascade)
+  producto Producto @relation(fields: [productoId], references: [id])
+}
