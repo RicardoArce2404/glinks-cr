@@ -24,6 +24,22 @@ enum Role {
   tecnico
 }
 
+model Sectorial {
+  id     String @id @default(uuid())
+  nombre String @unique
+
+  clientesFisicos   ClienteFisico[]   @relation("ClienteFisicoSectorial")
+  clientesJuridicos ClienteJuridico[] @relation("ClienteJuridicoSectorial")
+}
+
+model TipoAP {
+  id     String @id @default(uuid())
+  nombre String @unique
+
+  clientesFisicos   ClienteFisico[]   @relation("ClienteFisicoTipoAP")
+  clientesJuridicos ClienteJuridico[] @relation("ClienteJuridicoTipoAP")
+}
+
 model ClienteFisico {
   id                 String   @id @default(uuid())
   cedula             String   @unique
@@ -35,11 +51,14 @@ model ClienteFisico {
   email              String?
   domicilio          String
   plan               String
-  sectorial          String
-  tipoAP             String
+  sectorialId        String
+  tipoAPId           String
   routerId           Int
   poeId              Int
   createdAt          DateTime @default(now())
+
+  sectorial Sectorial @relation("ClienteFisicoSectorial", fields: [sectorialId], references: [id])
+  tipoAP    TipoAP    @relation("ClienteFisicoTipoAP", fields: [tipoAPId], references: [id])
 
   mantenimientos MantenimientoFisico[]
   facturas       Factura[]
@@ -54,11 +73,14 @@ model ClienteJuridico {
   domicilio          String
   email              String?
   plan               String
-  sectorial          String
-  tipoAP             String
+  sectorialId        String
+  tipoAPId           String
   routerId           Int
   poeId              Int
   createdAt          DateTime @default(now())
+
+  sectorial Sectorial @relation("ClienteJuridicoSectorial", fields: [sectorialId], references: [id])
+  tipoAP    TipoAP    @relation("ClienteJuridicoTipoAP", fields: [tipoAPId], references: [id])
 
   mantenimientos MantenimientoJuridico[]
   facturas       Factura[]

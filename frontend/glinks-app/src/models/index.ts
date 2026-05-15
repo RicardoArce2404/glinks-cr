@@ -11,6 +11,13 @@ export interface User {
   name: string;
 }
 
+// ─── Catálogos ────────────────────────────────────
+
+export interface CatalogoItem {
+  id: string;
+  nombre: string;
+}
+
 // ─── Clientes ──────────────────────────────────────
 
 export type PlanTipo = "4-4" | "6-6" | "8-8";
@@ -26,8 +33,10 @@ export interface ClienteFisico {
   email?: string | null;
   domicilio: string;
   plan: PlanTipo;
-  sectorial: string;
-  tipoAP: string;
+  sectorial: CatalogoItem;
+  sectorialId: string;
+  tipoAP: CatalogoItem;
+  tipoAPId: string;
   routerId: number;
   poeId: number;
   createdAt: string;
@@ -42,8 +51,10 @@ export interface ClienteJuridico {
   email?: string | null;
   domicilio: string;
   plan: PlanTipo;
-  sectorial: string;
-  tipoAP: string;
+  sectorial: CatalogoItem;
+  sectorialId: string;
+  tipoAP: CatalogoItem;
+  tipoAPId: string;
   routerId: number;
   poeId: number;
   createdAt: string;

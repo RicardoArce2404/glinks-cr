@@ -18,8 +18,8 @@ export type CreateClienteFisicoInput = {
   email?: string | null;
   domicilio: string;
   plan: PlanTipo;
-  sectorial: string;
-  tipoAP: string;
+  sectorialId: string;
+  tipoAPId: string;
   routerId: number;
   poeId: number;
 };
@@ -34,8 +34,8 @@ export type CreateClienteJuridicoInput = {
   email?: string | null;
   domicilio: string;
   plan: PlanTipo;
-  sectorial: string;
-  tipoAP: string;
+  sectorialId: string;
+  tipoAPId: string;
   routerId: number;
   poeId: number;
 };

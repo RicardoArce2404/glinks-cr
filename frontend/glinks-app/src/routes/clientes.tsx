@@ -40,20 +40,14 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import {
   clientesFisicosApi,
   clientesJuridicosApi,
   fetchTodosClientes,
-  type CreateClienteFisicoInput,
-  type CreateClienteJuridicoInput,
 } from "@/services/api/clientes";
-import type {
-  ClienteFisico,
-  ClienteJuridico,
-  ClienteUnificado,
-  PlanTipo,
-} from "@/models";
+import { sectorialesApi, tiposAPApi } from "@/services/api/catalogos";
+import type { ClienteUnificado, PlanTipo } from "@/models";
 import { Plus, Pencil, Trash2, Eye, Search, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -67,13 +61,11 @@ export const Route = createFileRoute("/clientes")({
 
 // ─── Tipos del formulario unificado ───────────────
 
-type ClienteTipo = "fisico" | "juridico";
-
 interface FormBase {
   domicilio: string;
   plan: PlanTipo;
-  sectorial: string;
-  tipoAP: string;
+  sectorialId: string;
+  tipoAPId: string;
   routerId: number;
   poeId: number;
   telefonoPrimario: string;
@@ -97,36 +89,32 @@ interface FormJuridico extends FormBase {
 
 type FormState = FormFisico | FormJuridico;
 
+const emptyBase: FormBase = {
+  domicilio: "",
+  plan: "4-4",
+  sectorialId: "",
+  tipoAPId: "",
+  routerId: 0,
+  poeId: 0,
+  telefonoPrimario: "",
+  telefonoSecundario: "",
+  email: "",
+};
+
 const emptyFisico: FormFisico = {
+  ...emptyBase,
   tipoCliente: "fisico",
   cedula: "",
   nombre: "",
   apellido1: "",
   apellido2: "",
-  telefonoPrimario: "",
-  telefonoSecundario: "",
-  email: "",
-  domicilio: "",
-  plan: "4-4",
-  sectorial: "",
-  tipoAP: "",
-  routerId: 0,
-  poeId: 0,
 };
 
 const emptyJuridico: FormJuridico = {
+  ...emptyBase,
   tipoCliente: "juridico",
   cedulaJuridica: "",
   nombreEmpresa: "",
-  telefonoPrimario: "",
-  telefonoSecundario: "",
-  email: "",
-  domicilio: "",
-  plan: "4-4",
-  sectorial: "",
-  tipoAP: "",
-  routerId: 0,
-  poeId: 0,
 };
 
 // ─── Helpers de display ───────────────────────────
@@ -145,31 +133,41 @@ function clienteDisplayDoc(c: ClienteUnificado): string {
 function ClientesPage() {
   const queryClient = useQueryClient();
 
-  // Búsqueda y paginación
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const pageSize = 8;
 
-  // Modal estado
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<ClienteUnificado | null>(null);
   const [form, setForm] = useState<FormState>(emptyFisico);
   const [view, setView] = useState<ClienteUnificado | null>(null);
 
-  // Cargar clientes unificados
+  // Catalogos para dropdowns
+  const { data: sectoriales = [] } = useQuery({
+    queryKey: ["catalogos", "sectoriales"],
+    queryFn: () => sectorialesApi.list(),
+    staleTime: 5 * 60_000,
+  });
+
+  const { data: tiposAP = [] } = useQuery({
+    queryKey: ["catalogos", "tipos-ap"],
+    queryFn: () => tiposAPApi.list(),
+    staleTime: 5 * 60_000,
+  });
+
+  // Clientes
   const { data: clientes = [], isLoading } = useQuery({
     queryKey: ["clientes", "todos"],
     queryFn: fetchTodosClientes,
     staleTime: 30_000,
   });
 
-  // Filtrado local (la búsqueda de texto recorre los ya cargados)
   const filtered = clientes.filter((c) => {
     if (!q) return true;
     const t = q.toLowerCase();
     const nombre = clienteDisplayNombre(c).toLowerCase();
     const doc = clienteDisplayDoc(c).toLowerCase();
-    const sectorial = c.sectorial.toLowerCase();
+    const sectorial = c.sectorial.nombre.toLowerCase();
     return nombre.includes(t) || doc.includes(t) || sectorial.includes(t);
   });
 
@@ -248,8 +246,8 @@ function ClientesPage() {
         email: c.email ?? "",
         domicilio: c.domicilio,
         plan: c.plan,
-        sectorial: c.sectorial,
-        tipoAP: c.tipoAP,
+        sectorialId: c.sectorialId,
+        tipoAPId: c.tipoAPId,
         routerId: c.routerId,
         poeId: c.poeId,
       });
@@ -263,8 +261,8 @@ function ClientesPage() {
         email: c.email ?? "",
         domicilio: c.domicilio,
         plan: c.plan,
-        sectorial: c.sectorial,
-        tipoAP: c.tipoAP,
+        sectorialId: c.sectorialId,
+        tipoAPId: c.tipoAPId,
         routerId: c.routerId,
         poeId: c.poeId,
       });
@@ -272,7 +270,7 @@ function ClientesPage() {
     setOpen(true);
   };
 
-  const switchTipo = (t: ClienteTipo) => {
+  const switchTipo = (t: "fisico" | "juridico") => {
     setForm(t === "fisico" ? emptyFisico : emptyJuridico);
   };
 
@@ -288,12 +286,24 @@ function ClientesPage() {
         return;
       }
     }
+    if (!form.sectorialId) {
+      toast.error("Selecciona una sectorial");
+      return;
+    }
+    if (!form.tipoAPId) {
+      toast.error("Selecciona un tipo de AP");
+      return;
+    }
 
     if (editing) {
       updateMutation.mutate({ id: editing.id, data: form });
     } else {
       createMutation.mutate(form);
     }
+  };
+
+  const setFormField = <K extends keyof FormBase>(key: K, value: FormBase[K]) => {
+    setForm({ ...form, [key]: value } as FormState);
   };
 
   const saving = createMutation.isPending || updateMutation.isPending;
@@ -361,7 +371,9 @@ function ClientesPage() {
                       </Badge>
                     </TableCell>
                     <TableCell className="hidden md:table-cell">{c.plan}</TableCell>
-                    <TableCell className="hidden md:table-cell">{c.sectorial}</TableCell>
+                    <TableCell className="hidden md:table-cell">
+                      {c.sectorial.nombre}
+                    </TableCell>
                     <TableCell className="text-right">
                       <div className="inline-flex gap-1">
                         <Button
@@ -455,7 +467,6 @@ function ClientesPage() {
             </DialogTitle>
           </DialogHeader>
 
-          {/* Selector de tipo (solo en creación) */}
           {!editing && (
             <div className="flex gap-2">
               <Button
@@ -530,14 +541,14 @@ function ClientesPage() {
               <Label>Teléfono primario</Label>
               <Input
                 value={form.telefonoPrimario}
-                onChange={(e) => setForm({ ...form, telefonoPrimario: e.target.value })}
+                onChange={(e) => setFormField("telefonoPrimario", e.target.value)}
               />
             </div>
             <div>
               <Label>Teléfono secundario</Label>
               <Input
                 value={form.telefonoSecundario}
-                onChange={(e) => setForm({ ...form, telefonoSecundario: e.target.value })}
+                onChange={(e) => setFormField("telefonoSecundario", e.target.value)}
               />
             </div>
             <div className="sm:col-span-2">
@@ -545,21 +556,57 @@ function ClientesPage() {
               <Input
                 type="email"
                 value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                onChange={(e) => setFormField("email", e.target.value)}
               />
             </div>
             <div className="sm:col-span-2">
               <Label>Domicilio</Label>
               <Input
                 value={form.domicilio}
-                onChange={(e) => setForm({ ...form, domicilio: e.target.value })}
+                onChange={(e) => setFormField("domicilio", e.target.value)}
               />
+            </div>
+            <div>
+              <Label>Sectorial</Label>
+              <Select
+                value={form.sectorialId}
+                onValueChange={(v) => setFormField("sectorialId", v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecciona sectorial" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sectoriales.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Tipo de AP</Label>
+              <Select
+                value={form.tipoAPId}
+                onValueChange={(v) => setFormField("tipoAPId", v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecciona tipo de AP" />
+                </SelectTrigger>
+                <SelectContent>
+                  {tiposAP.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <Label>Plan</Label>
               <Select
                 value={form.plan}
-                onValueChange={(v) => setForm({ ...form, plan: v as PlanTipo })}
+                onValueChange={(v) => setFormField("plan", v as PlanTipo)}
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -570,25 +617,11 @@ function ClientesPage() {
               </Select>
             </div>
             <div>
-              <Label>Sectorial</Label>
-              <Input
-                value={form.sectorial}
-                onChange={(e) => setForm({ ...form, sectorial: e.target.value })}
-              />
-            </div>
-            <div>
-              <Label>Tipo de AP</Label>
-              <Input
-                value={form.tipoAP}
-                onChange={(e) => setForm({ ...form, tipoAP: e.target.value })}
-              />
-            </div>
-            <div>
               <Label>Router ID</Label>
               <Input
                 type="number"
                 value={form.routerId || ""}
-                onChange={(e) => setForm({ ...form, routerId: +e.target.value })}
+                onChange={(e) => setFormField("routerId", +e.target.value)}
               />
             </div>
             <div>
@@ -596,7 +629,7 @@ function ClientesPage() {
               <Input
                 type="number"
                 value={form.poeId || ""}
-                onChange={(e) => setForm({ ...form, poeId: +e.target.value })}
+                onChange={(e) => setFormField("poeId", +e.target.value)}
               />
             </div>
           </div>
@@ -641,8 +674,8 @@ function ClientesPage() {
               {view.email && <Row label="Email" value={view.email} />}
               <Row label="Domicilio" value={view.domicilio} />
               <Row label="Plan" value={view.plan} />
-              <Row label="Sectorial" value={view.sectorial} />
-              <Row label="Tipo AP" value={view.tipoAP} />
+              <Row label="Sectorial" value={view.sectorial.nombre} />
+              <Row label="Tipo AP" value={view.tipoAP.nombre} />
               <Row label="Router ID" value={String(view.routerId)} />
               <Row label="PoE ID" value={String(view.poeId)} />
               <Row

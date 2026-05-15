@@ -20,8 +20,8 @@ export const createClienteFisicoSchema = z.object({
   email: z.string().regex(emailRegex, "Correo electrónico inválido").optional().nullable(),
   domicilio: z.string().min(1).max(255),
   plan: z.enum(planes),
-  sectorial: z.string().min(1).max(255),
-  tipoAP: z.string().min(1).max(255),
+  sectorialId: z.string().uuid("Sectorial debe ser un ID válido"),
+  tipoAPId: z.string().uuid("Tipo de AP debe ser un ID válido"),
   routerId: z.number().int().positive(),
   poeId: z.number().int().positive(),
 });
@@ -38,8 +38,8 @@ export const createClienteJuridicoSchema = z.object({
   domicilio: z.string().min(1).max(255),
   email: z.string().regex(emailRegex, "Correo electrónico inválido").optional().nullable(),
   plan: z.enum(planes),
-  sectorial: z.string().min(1).max(255),
-  tipoAP: z.string().min(1).max(255),
+  sectorialId: z.string().uuid("Sectorial debe ser un ID válido"),
+  tipoAPId: z.string().uuid("Tipo de AP debe ser un ID válido"),
   routerId: z.number().int().positive(),
   poeId: z.number().int().positive(),
 });

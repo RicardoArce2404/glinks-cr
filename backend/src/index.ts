@@ -8,6 +8,7 @@ import clientesJuridicosRoutes from "./routes/clientesJuridicos.js";
 import mantenimientosRoutes from "./routes/mantenimientos.js";
 import inventarioRoutes from "./routes/inventario.js";
 import facturacionRoutes from "./routes/facturacion.js";
+import catalogosRoutes from "./routes/catalogos.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
 const app = express();
@@ -29,6 +30,7 @@ app.use("/api/clientes-juridicos", clientesJuridicosRoutes);
 app.use("/api/mantenimientos", mantenimientosRoutes);
 app.use("/api/productos", inventarioRoutes);
 app.use("/api/facturas", facturacionRoutes);
+app.use("/api/catalogos", catalogosRoutes);
 app.use(errorHandler);
 
 app.listen(PORT, () => {
