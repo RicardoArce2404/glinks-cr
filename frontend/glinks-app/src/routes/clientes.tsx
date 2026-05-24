@@ -5,13 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -46,8 +39,7 @@ import {
   clientesJuridicosApi,
   fetchTodosClientes,
 } from "@/services/api/clientes";
-import { sectorialesApi, tiposAPApi } from "@/services/api/catalogos";
-import type { ClienteUnificado, PlanTipo } from "@/models";
+import type { ClienteUnificado } from "@/models";
 import { Plus, Pencil, Trash2, Eye, Search, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -63,11 +55,6 @@ export const Route = createFileRoute("/clientes")({
 
 interface FormBase {
   domicilio: string;
-  plan: PlanTipo;
-  sectorialId: string;
-  tipoAPId: string;
-  routerId: number;
-  poeId: number;
   telefonoPrimario: string;
   telefonoSecundario: string;
   email: string;
@@ -91,11 +78,6 @@ type FormState = FormFisico | FormJuridico;
 
 const emptyBase: FormBase = {
   domicilio: "",
-  plan: "4-4",
-  sectorialId: "",
-  tipoAPId: "",
-  routerId: 0,
-  poeId: 0,
   telefonoPrimario: "",
   telefonoSecundario: "",
   email: "",
@@ -142,19 +124,6 @@ function ClientesPage() {
   const [form, setForm] = useState<FormState>(emptyFisico);
   const [view, setView] = useState<ClienteUnificado | null>(null);
 
-  // Catalogos para dropdowns
-  const { data: sectoriales = [] } = useQuery({
-    queryKey: ["catalogos", "sectoriales"],
-    queryFn: () => sectorialesApi.list(),
-    staleTime: 5 * 60_000,
-  });
-
-  const { data: tiposAP = [] } = useQuery({
-    queryKey: ["catalogos", "tipos-ap"],
-    queryFn: () => tiposAPApi.list(),
-    staleTime: 5 * 60_000,
-  });
-
   // Clientes
   const { data: clientes = [], isLoading } = useQuery({
     queryKey: ["clientes", "todos"],
@@ -167,8 +136,7 @@ function ClientesPage() {
     const t = q.toLowerCase();
     const nombre = clienteDisplayNombre(c).toLowerCase();
     const doc = clienteDisplayDoc(c).toLowerCase();
-    const sectorial = c.sectorial.nombre.toLowerCase();
-    return nombre.includes(t) || doc.includes(t) || sectorial.includes(t);
+    return nombre.includes(t) || doc.includes(t);
   });
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -245,11 +213,6 @@ function ClientesPage() {
         telefonoSecundario: c.telefonoSecundario ?? "",
         email: c.email ?? "",
         domicilio: c.domicilio,
-        plan: c.plan,
-        sectorialId: c.sectorialId,
-        tipoAPId: c.tipoAPId,
-        routerId: c.routerId,
-        poeId: c.poeId,
       });
     } else {
       setForm({
@@ -260,11 +223,6 @@ function ClientesPage() {
         telefonoSecundario: c.telefonoSecundario ?? "",
         email: c.email ?? "",
         domicilio: c.domicilio,
-        plan: c.plan,
-        sectorialId: c.sectorialId,
-        tipoAPId: c.tipoAPId,
-        routerId: c.routerId,
-        poeId: c.poeId,
       });
     }
     setOpen(true);
@@ -286,12 +244,12 @@ function ClientesPage() {
         return;
       }
     }
-    if (!form.sectorialId) {
-      toast.error("Selecciona una sectorial");
+    if (!form.telefonoPrimario) {
+      toast.error("Teléfono primario requerido");
       return;
     }
-    if (!form.tipoAPId) {
-      toast.error("Selecciona un tipo de AP");
+    if (!form.domicilio) {
+      toast.error("Domicilio requerido");
       return;
     }
 
@@ -328,7 +286,7 @@ function ClientesPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             className="pl-9"
-            placeholder="Buscar por nombre, cédula o sectorial"
+            placeholder="Buscar por nombre o cédula"
             value={q}
             onChange={(e) => {
               setQ(e.target.value);
@@ -351,8 +309,8 @@ function ClientesPage() {
                   <TableHead>Nombre</TableHead>
                   <TableHead>Doc. identidad</TableHead>
                   <TableHead className="hidden md:table-cell">Tipo</TableHead>
-                  <TableHead className="hidden md:table-cell">Plan</TableHead>
-                  <TableHead className="hidden md:table-cell">Sectorial</TableHead>
+                  <TableHead className="hidden md:table-cell">Teléfono</TableHead>
+                  <TableHead className="hidden md:table-cell">Domicilio</TableHead>
                   <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
@@ -370,9 +328,11 @@ function ClientesPage() {
                         {c.tipo === "fisico" ? "Física" : "Jurídica"}
                       </Badge>
                     </TableCell>
-                    <TableCell className="hidden md:table-cell">{c.plan}</TableCell>
                     <TableCell className="hidden md:table-cell">
-                      {c.sectorial.nombre}
+                      {c.telefonoPrimario}
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell truncate max-w-[180px]">
+                      {c.domicilio}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="inline-flex gap-1">
@@ -400,8 +360,7 @@ function ClientesPage() {
                             <AlertDialogHeader>
                               <AlertDialogTitle>¿Eliminar cliente?</AlertDialogTitle>
                               <AlertDialogDescription>
-                                Esta acción no se puede deshacer. Se eliminarán también
-                                sus mantenimientos y facturas asociadas.
+                                Esta acción no se puede deshacer.
                               </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
@@ -524,14 +483,18 @@ function ClientesPage() {
                   <Label>Cédula jurídica</Label>
                   <Input
                     value={form.cedulaJuridica}
-                    onChange={(e) => setForm({ ...form, cedulaJuridica: e.target.value })}
+                    onChange={(e) =>
+                      setForm({ ...form, cedulaJuridica: e.target.value })
+                    }
                   />
                 </div>
                 <div className="sm:col-span-2">
                   <Label>Nombre de empresa</Label>
                   <Input
                     value={form.nombreEmpresa}
-                    onChange={(e) => setForm({ ...form, nombreEmpresa: e.target.value })}
+                    onChange={(e) =>
+                      setForm({ ...form, nombreEmpresa: e.target.value })
+                    }
                   />
                 </div>
               </>
@@ -552,7 +515,7 @@ function ClientesPage() {
               />
             </div>
             <div className="sm:col-span-2">
-              <Label>Email</Label>
+              <Label>Correo</Label>
               <Input
                 type="email"
                 value={form.email}
@@ -566,72 +529,6 @@ function ClientesPage() {
                 onChange={(e) => setFormField("domicilio", e.target.value)}
               />
             </div>
-            <div>
-              <Label>Sectorial</Label>
-              <Select
-                value={form.sectorialId}
-                onValueChange={(v) => setFormField("sectorialId", v)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecciona sectorial" />
-                </SelectTrigger>
-                <SelectContent>
-                  {sectoriales.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Tipo de AP</Label>
-              <Select
-                value={form.tipoAPId}
-                onValueChange={(v) => setFormField("tipoAPId", v)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecciona tipo de AP" />
-                </SelectTrigger>
-                <SelectContent>
-                  {tiposAP.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Plan</Label>
-              <Select
-                value={form.plan}
-                onValueChange={(v) => setFormField("plan", v as PlanTipo)}
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="4-4">4-4</SelectItem>
-                  <SelectItem value="6-6">6-6</SelectItem>
-                  <SelectItem value="8-8">8-8</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Router ID</Label>
-              <Input
-                type="number"
-                value={form.routerId || ""}
-                onChange={(e) => setFormField("routerId", +e.target.value)}
-              />
-            </div>
-            <div>
-              <Label>PoE ID</Label>
-              <Input
-                type="number"
-                value={form.poeId || ""}
-                onChange={(e) => setFormField("poeId", +e.target.value)}
-              />
-            </div>
           </div>
 
           <DialogFooter>
@@ -639,9 +536,7 @@ function ClientesPage() {
               Cancelar
             </Button>
             <Button onClick={submit} disabled={saving}>
-              {saving ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : null}
+              {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               {editing ? "Guardar" : "Registrar"}
             </Button>
           </DialogFooter>
@@ -667,17 +562,17 @@ function ClientesPage() {
                 value={clienteDisplayDoc(view)}
               />
               {view.tipo === "fisico" && (
-                <Row label="Nombre completo" value={`${view.nombre} ${view.apellido1} ${view.apellido2}`} />
+                <Row
+                  label="Nombre completo"
+                  value={`${view.nombre} ${view.apellido1} ${view.apellido2}`}
+                />
               )}
               <Row label="Teléfono" value={view.telefonoPrimario} />
-              {view.telefonoSecundario && <Row label="Teléfono 2" value={view.telefonoSecundario} />}
-              {view.email && <Row label="Email" value={view.email} />}
+              {view.telefonoSecundario && (
+                <Row label="Teléfono 2" value={view.telefonoSecundario} />
+              )}
+              {view.email && <Row label="Correo" value={view.email} />}
               <Row label="Domicilio" value={view.domicilio} />
-              <Row label="Plan" value={view.plan} />
-              <Row label="Sectorial" value={view.sectorial.nombre} />
-              <Row label="Tipo AP" value={view.tipoAP.nombre} />
-              <Row label="Router ID" value={String(view.routerId)} />
-              <Row label="PoE ID" value={String(view.poeId)} />
               <Row
                 label="Registrado"
                 value={new Date(view.createdAt).toLocaleDateString()}
