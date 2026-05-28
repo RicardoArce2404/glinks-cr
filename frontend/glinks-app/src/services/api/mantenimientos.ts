@@ -1,76 +1,73 @@
 import { http } from "../httpClient";
-import type { Mantenimiento, PaginatedResponse } from "@/models";
+import type { Maintenance, PaginatedResponse } from "@/models";
 
 // ─── Tipos ─────────────────────────────────────────
 
-export type CreateMantenimientoInput = {
-  descripcion: string;
-  clienteFisicoId?: string;
-  clienteJuridicoId?: string;
-};
+export interface CreateMaintenanceProductInput {
+  amount: number;
+  productId: string;
+}
+
+export interface CreateMaintenanceInput {
+  description: string;
+  physicalClientId?: string;
+  legalClientId?: string;
+  maintenanceProducts: CreateMaintenanceProductInput[];
+}
 
 // ─── API ───────────────────────────────────────────
 
 export const mantenimientosApi = {
   /** Mantenimientos de clientes físicos */
-  listFisicos(clienteId?: string, page = 1, limit = 50) {
-    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-    if (clienteId) params.set("clienteId", clienteId);
-    return http.get<PaginatedResponse<Mantenimiento>>(
-      `/mantenimientos/fisicos?${params.toString()}`,
+  listPhysical(page = 1, limit = 50) {
+    return http.get<PaginatedResponse<Maintenance>>(
+      `/mantenimientos/fisicos?page=${page}&limit=${limit}`,
     );
   },
 
-  createFisico(data: CreateMantenimientoInput) {
-    return http.post<Mantenimiento>("/mantenimientos/fisicos", {
-      clienteFisicoId: data.clienteFisicoId,
-      descripcion: data.descripcion,
+  createPhysical(data: Omit<CreateMaintenanceInput, "legalClientId">) {
+    return http.post<Maintenance>("/mantenimientos/fisicos", {
+      description: data.description,
+      physicalClientId: data.physicalClientId,
+      maintenanceProducts: data.maintenanceProducts,
     });
   },
 
   /** Mantenimientos de clientes jurídicos */
-  listJuridicos(clienteId?: string, page = 1, limit = 50) {
-    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-    if (clienteId) params.set("clienteId", clienteId);
-    return http.get<PaginatedResponse<Mantenimiento>>(
-      `/mantenimientos/juridicos?${params.toString()}`,
+  listLegal(page = 1, limit = 50) {
+    return http.get<PaginatedResponse<Maintenance>>(
+      `/mantenimientos/juridicos?page=${page}&limit=${limit}`,
     );
   },
 
-  createJuridico(data: CreateMantenimientoInput) {
-    return http.post<Mantenimiento>("/mantenimientos/juridicos", {
-      clienteJuridicoId: data.clienteJuridicoId,
-      descripcion: data.descripcion,
+  createLegal(data: Omit<CreateMaintenanceInput, "physicalClientId">) {
+    return http.post<Maintenance>("/mantenimientos/juridicos", {
+      description: data.description,
+      legalClientId: data.legalClientId,
+      maintenanceProducts: data.maintenanceProducts,
     });
   },
 };
 
 // ─── Helpers para lista unificada ──────────────────
 
-export async function fetchTodosMantenimientos(
-  clienteId?: string,
+export async function fetchAllMaintenances(
   page = 1,
   limit = 50,
-) {
-  const [fisicos, juridicos] = await Promise.all([
-    mantenimientosApi.listFisicos(clienteId, page, limit),
-    mantenimientosApi.listJuridicos(clienteId, page, limit),
+): Promise<{ data: Maintenance[]; total: number; page: number; limit: number }> {
+  const [physical, legal] = await Promise.all([
+    mantenimientosApi.listPhysical(page, limit),
+    mantenimientosApi.listLegal(page, limit),
   ]);
 
-  // Marcar cada registro con su origen para mostrarlo en UI
-  const todos = [
-    ...fisicos.data.map((m) => ({ ...m, _origen: "fisico" as const })),
-    ...juridicos.data.map((m) => ({ ...m, _origen: "juridico" as const })),
-  ];
+  const all = [...physical.data, ...legal.data];
 
   // Ordenar por fecha descendente
-  todos.sort(
-    (a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime(),
-  );
+  all.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   return {
-    data: todos,
-    total: fisicos.total + juridicos.total,
+    data: all,
+    total: physical.total + legal.total,
     page,
     limit,
   };

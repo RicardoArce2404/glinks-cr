@@ -15,22 +15,22 @@ export const Route = createFileRoute("/login")({
 function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [u, setU] = useState("");
-  const [p, setP] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(true);
-  const [err, setErr] = useState("");
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const submit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setErr("");
+    setError("");
     setLoading(true);
 
-    const res = await login(u, p, remember);
+    const result = await login(username, password, remember);
     setLoading(false);
 
-    if (!res.ok) {
-      setErr(res.error ?? "Error");
+    if (!result.ok) {
+      setError(result.error ?? "Credenciales inválidas");
     } else {
       navigate({ to: "/dashboard" });
     }
@@ -48,38 +48,40 @@ function LoginPage() {
             <p className="text-sm text-muted-foreground">Sistema de gestión</p>
           </div>
         </div>
-        <form onSubmit={submit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <Label htmlFor="u">Usuario</Label>
+            <Label htmlFor="username">Usuario</Label>
             <Input
-              id="u"
-              value={u}
-              onChange={(e) => setU(e.target.value)}
+              id="username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               disabled={loading}
+              autoComplete="username"
             />
           </div>
           <div>
-            <Label htmlFor="p">Contraseña</Label>
+            <Label htmlFor="password">Contraseña</Label>
             <Input
-              id="p"
+              id="password"
               type="password"
-              value={p}
-              onChange={(e) => setP(e.target.value)}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               disabled={loading}
+              autoComplete="current-password"
             />
           </div>
           <div className="flex items-center gap-2">
             <Checkbox
-              id="r"
+              id="remember"
               checked={remember}
-              onCheckedChange={(v) => setRemember(!!v)}
+              onCheckedChange={(checked) => setRemember(!!checked)}
               disabled={loading}
             />
-            <Label htmlFor="r" className="text-sm font-normal cursor-pointer">
+            <Label htmlFor="remember" className="text-sm font-normal cursor-pointer">
               Recordarme
             </Label>
           </div>
-          {err && <p className="text-sm text-destructive">{err}</p>}
+          {error && <p className="text-sm text-destructive">{error}</p>}
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? (
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />

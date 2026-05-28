@@ -1,6 +1,4 @@
-// ═══════════════════════════════════════════════════
-// Tipos alineados con el backend (Prisma + Zod)
-// ═══════════════════════════════════════════════════
+
 
 export type Role = "admin" | "tecnico";
 
@@ -8,134 +6,116 @@ export interface User {
   id: string;
   username: string;
   role: Role;
-  name: string;
-}
-
-// ─── Catálogos ────────────────────────────────────
-
-export interface CatalogoItem {
-  id: string;
-  nombre: string;
+  createdAt: string;
 }
 
 // ─── Clientes ──────────────────────────────────────
 
-export type PlanTipo = "4-4" | "6-6" | "8-8";
-
-export interface ClienteFisico {
+export interface PhysicalClient {
   id: string;
-  cedula: string;
-  nombre: string;
-  apellido1: string;
-  apellido2: string;
-  telefonoPrimario: string;
-  telefonoSecundario?: string | null;
-  email?: string | null;
-  domicilio: string;
-  plan: PlanTipo;
-  sectorial: CatalogoItem;
-  sectorialId: string;
-  tipoAP: CatalogoItem;
-  tipoAPId: string;
-  routerId: number;
-  poeId: number;
+  national_id: string;
+  name: string;
+  last_name_1: string;
+  last_name_2: string;
+  primary_phone: string;
+  secondary_phone: string | null;
+  email: string | null;
+  address: string;
+  exonerated: boolean;
   createdAt: string;
 }
 
-export interface ClienteJuridico {
+export interface LegalClient {
   id: string;
-  cedulaJuridica: string;
-  nombreEmpresa: string;
-  telefonoPrimario: string;
-  telefonoSecundario?: string | null;
-  email?: string | null;
-  domicilio: string;
-  plan: PlanTipo;
-  sectorial: CatalogoItem;
-  sectorialId: string;
-  tipoAP: CatalogoItem;
-  tipoAPId: string;
-  routerId: number;
-  poeId: number;
+  legal_id: string;
+  name: string;
+  primary_phone: string;
+  secondary_phone: string | null;
+  email: string | null;
+  address: string;
+  exonerated: boolean;
   createdAt: string;
 }
 
 /** Cliente unificado para mostrar ambas clases en una misma lista */
-export type ClienteUnificado =
-  | (ClienteFisico & { tipo: "fisico" })
-  | (ClienteJuridico & { tipo: "juridico" });
+export type UnifiedClient =
+  | (PhysicalClient & { tipo: "fisico" })
+  | (LegalClient & { tipo: "juridico" });
+
+// ─── Productos / Inventario ────────────────────────
+
+export type ProductType = 
+  | "Router" 
+  | "PoE" 
+  | "Tubo metálico" 
+  | "Antena AP" 
+  | "Cable" 
+  | "Otro";
+
+export interface Product {
+  id: string;
+  name: string;
+  type: string;
+  description: string;
+  unit_price: number;
+  billable: boolean;
+  createdAt: string;
+}
 
 // ─── Mantenimientos ────────────────────────────────
 
-export interface Mantenimiento {
+export interface MaintenanceProduct {
   id: string;
-  descripcion: string;
-  fecha: string;
-  clienteFisicoId?: string | null;
-  clienteJuridicoId?: string | null;
-  responsableId: string;
-  responsable?: {
-    id: string;
-    name: string;
-    username: string;
-  };
+  amount: number;
+  product_id: string;
+  product?: Product;
 }
 
-// ─── Inventario ────────────────────────────────────
-
-export type ProductoTipo =
-  | "Router"
-  | "PoE"
-  | "Tubo metálico"
-  | "Antena AP"
-  | "Cable"
-  | "Otro";
-
-export type ProductoEstado = "disponible" | "en_uso";
-
-export interface Producto {
+export interface Maintenance {
   id: string;
-  nombre: string;
-  tipo: ProductoTipo;
-  serial: string;
-  estado: ProductoEstado;
-  stock: number;
-  precio: number;
-  createdAt?: string;
+  date: string;
+  description: string;
+  physical_client_id: string | null;
+  legal_client_id: string | null;
+  responsible_id: string;
+  responsible?: {
+    id: string;
+    username: string;
+    role: Role;
+  };
+  physical_client?: PhysicalClient | null;
+  legal_client?: LegalClient | null;
+  maintenanceProducts: MaintenanceProduct[];
 }
 
 // ─── Facturación ───────────────────────────────────
 
-export interface FacturaItem {
-  productoId: string;
-  nombre: string;
-  cantidad: number;
-  precio: number;
+export interface ServiceProductItem {
+  id: string;
+  product_id: string;
+  start_date: string;
+  end_date: string;
+  product?: Product;
 }
 
-export type FacturaEstado = "activa" | "anulada";
-
-export interface Factura {
+export interface PhysicalProductItem {
   id: string;
-  numero: string;
-  fecha: string;
-  subtotal: number;
-  impuestos: number;
-  total: number;
-  estado: FacturaEstado;
-  clienteFisicoId?: string | null;
-  clienteJuridicoId?: string | null;
-  clienteFisico?: {
-    id: string;
-    nombre: string;
-    cedula: string;
-  } | null;
-  clienteJuridico?: {
-    id: string;
-    nombreEmpresa: string;
-    cedulaJuridica: string;
-  } | null;
-  items: FacturaItem[];
+  product_id: string;
+  amount: number;
+  product?: Product;
+}
+
+export type InvoiceStatus = "active" | "cancelled";
+
+export interface Invoice {
+  id: string;
+  date: string;
+  physical_client_id: string | null;
+  legal_client_id: string | null;
+  physicalClient?: PhysicalClient | null;
+  legalClient?: LegalClient | null;
+  serviceProductItems: ServiceProductItem[];
+  physicalProductItems: PhysicalProductItem[];
 }
 
 // ─── API paginación ────────────────────────────────

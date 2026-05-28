@@ -1,88 +1,67 @@
 import { http } from "../httpClient";
 import type {
-  ClienteFisico,
-  ClienteJuridico,
-  PlanTipo,
+  PhysicalClient,
+  LegalClient,
+  UnifiedClient,
   PaginatedResponse,
 } from "@/models";
 
 // ─── Tipos para creación/actualización ─────────────
 
-export type CreateClienteFisicoInput = {
-  cedula: string;
-  nombre: string;
-  apellido1: string;
-  apellido2: string;
-  telefonoPrimario: string;
-  telefonoSecundario?: string | null;
+export type CreatePhysicalClientInput = {
+  nationalId: string;
+  name: string;
+  lastName1: string;
+  lastName2: string;
+  primaryPhone: string;
+  secondaryPhone?: string | null;
   email?: string | null;
-  domicilio: string;
-  plan: PlanTipo;
-  sectorialId: string;
-  tipoAPId: string;
-  routerId: number;
-  poeId: number;
+  address: string;
+  exonerated: boolean;
 };
 
-export type UpdateClienteFisicoInput = Partial<CreateClienteFisicoInput>;
+export type UpdatePhysicalClientInput = Partial<CreatePhysicalClientInput>;
 
-export type CreateClienteJuridicoInput = {
-  cedulaJuridica: string;
-  nombreEmpresa: string;
-  telefonoPrimario: string;
-  telefonoSecundario?: string | null;
+export type CreateLegalClientInput = {
+  legalId: string;
+  name: string;
+  primaryPhone: string;
+  secondaryPhone?: string | null;
   email?: string | null;
-  domicilio: string;
-  plan: PlanTipo;
-  sectorialId: string;
-  tipoAPId: string;
-  routerId: number;
-  poeId: number;
+  address: string;
+  exonerated: boolean;
 };
 
-export type UpdateClienteJuridicoInput = Partial<CreateClienteJuridicoInput>;
-
-export type ClienteSearchFilters = {
-  nombre?: string;
-  cedula?: string;
-  nombreEmpresa?: string;
-  cedulaJuridica?: string;
-  sectorial?: string;
-};
+export type UpdateLegalClientInput = Partial<CreateLegalClientInput>;
 
 // ─── Físicos ───────────────────────────────────────
 
-export const clientesFisicosApi = {
+export const physicalClientsApi = {
   list(page = 1, limit = 50) {
-    return http.get<PaginatedResponse<ClienteFisico>>(
+    return http.get<PaginatedResponse<PhysicalClient>>(
       `/clientes-fisicos?page=${page}&limit=${limit}`,
     );
   },
 
-  search(filters: {
-    nombre?: string;
-    cedula?: string;
-    sectorial?: string;
-  }) {
-    const params = new URLSearchParams();
-    if (filters.nombre) params.set("nombre", filters.nombre);
-    if (filters.cedula) params.set("cedula", filters.cedula);
-    if (filters.sectorial) params.set("sectorial", filters.sectorial);
-    return http.get<ClienteFisico[]>(
+  search(nationalId?: string, name?: string, page = 1, limit = 50) {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (nationalId) params.set("nationalId", nationalId);
+    if (name) params.set("name", name);
+    return http.get<PaginatedResponse<PhysicalClient>>(
       `/clientes-fisicos/search?${params.toString()}`,
     );
   },
 
   getById(id: string) {
-    return http.get<ClienteFisico>(`/clientes-fisicos/${id}`);
+    return http.get<PhysicalClient>(`/clientes-fisicos/${id}`);
   },
 
-  create(data: CreateClienteFisicoInput) {
-    return http.post<ClienteFisico>("/clientes-fisicos", data);
+  create(data: CreatePhysicalClientInput) {
+    return http.post<PhysicalClient>("/clientes-fisicos", data);
   },
 
-  update(id: string, data: UpdateClienteFisicoInput) {
-    return http.put<ClienteFisico>(`/clientes-fisicos/${id}`, data);
+  update(id: string, data: UpdatePhysicalClientInput) {
+    return http.put<PhysicalClient>(`/clientes-fisicos/${id}`, data);
   },
 
   remove(id: string) {
@@ -92,37 +71,32 @@ export const clientesFisicosApi = {
 
 // ─── Jurídicos ─────────────────────────────────────
 
-export const clientesJuridicosApi = {
+export const legalClientsApi = {
   list(page = 1, limit = 50) {
-    return http.get<PaginatedResponse<ClienteJuridico>>(
+    return http.get<PaginatedResponse<LegalClient>>(
       `/clientes-juridicos?page=${page}&limit=${limit}`,
     );
   },
 
-  search(filters: {
-    nombreEmpresa?: string;
-    cedulaJuridica?: string;
-    sectorial?: string;
-  }) {
-    const params = new URLSearchParams();
-    if (filters.nombreEmpresa) params.set("nombreEmpresa", filters.nombreEmpresa);
-    if (filters.cedulaJuridica) params.set("cedulaJuridica", filters.cedulaJuridica);
-    if (filters.sectorial) params.set("sectorial", filters.sectorial);
-    return http.get<ClienteJuridico[]>(
+  search(legalId?: string, name?: string, page = 1, limit = 50) {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (legalId) params.set("legalId", legalId);
+    if (name) params.set("name", name);
+    return http.get<PaginatedResponse<LegalClient>>(
       `/clientes-juridicos/search?${params.toString()}`,
     );
   },
 
   getById(id: string) {
-    return http.get<ClienteJuridico>(`/clientes-juridicos/${id}`);
+    return http.get<LegalClient>(`/clientes-juridicos/${id}`);
   },
 
-  create(data: CreateClienteJuridicoInput) {
-    return http.post<ClienteJuridico>("/clientes-juridicos", data);
+  create(data: CreateLegalClientInput) {
+    return http.post<LegalClient>("/clientes-juridicos", data);
   },
 
-  update(id: string, data: UpdateClienteJuridicoInput) {
-    return http.put<ClienteJuridico>(`/clientes-juridicos/${id}`, data);
+  update(id: string, data: UpdateLegalClientInput) {
+    return http.put<LegalClient>(`/clientes-juridicos/${id}`, data);
   },
 
   remove(id: string) {
@@ -132,24 +106,24 @@ export const clientesJuridicosApi = {
 
 // ─── Helpers para lista unificada ──────────────────
 
-export async function fetchTodosClientes() {
-  const [fisicos, juridicos] = await Promise.all([
-    clientesFisicosApi.list(),
-    clientesJuridicosApi.list(),
+export async function fetchAllClients(): Promise<UnifiedClient[]> {
+  const [physical, legal] = await Promise.all([
+    physicalClientsApi.list(1, 1000),
+    legalClientsApi.list(1, 1000),
   ]);
 
   return [
-    ...fisicos.data.map(
-      (c): ClienteFisico & { tipo: "fisico" } => ({ ...c, tipo: "fisico" }),
+    ...physical.data.map(
+      (c): UnifiedClient => ({
+        ...c,
+        tipo: "fisico",
+      }),
     ),
-    ...juridicos.data.map(
-      (c): ClienteJuridico & { tipo: "juridico" } => ({
+    ...legal.data.map(
+      (c): UnifiedClient => ({
         ...c,
         tipo: "juridico",
       }),
     ),
-  ] as Array<
-    | (ClienteFisico & { tipo: "fisico" })
-    | (ClienteJuridico & { tipo: "juridico" })
-  >;
+  ];
 }

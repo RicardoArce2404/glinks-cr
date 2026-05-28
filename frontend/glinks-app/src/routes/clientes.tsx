@@ -32,14 +32,17 @@ import {
   TableHead,
   TableCell,
 } from "@/components/ui/table";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import {
-  clientesFisicosApi,
-  clientesJuridicosApi,
-  fetchTodosClientes,
+  physicalClientsApi,
+  legalClientsApi,
+  fetchAllClients,
+  type CreatePhysicalClientInput,
+  type CreateLegalClientInput,
 } from "@/services/api/clientes";
-import type { ClienteUnificado } from "@/models";
+import type { UnifiedClient } from "@/models";
 import { Plus, Pencil, Trash2, Eye, Search, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -54,60 +57,63 @@ export const Route = createFileRoute("/clientes")({
 // ─── Tipos del formulario unificado ───────────────
 
 interface FormBase {
-  domicilio: string;
-  telefonoPrimario: string;
-  telefonoSecundario: string;
+  address: string;
+  primary_phone: string;
+  secondary_phone: string;
   email: string;
+  exonerated: boolean;
 }
 
-interface FormFisico extends FormBase {
+interface FormPhysical extends FormBase {
   tipoCliente: "fisico";
-  cedula: string;
-  nombre: string;
-  apellido1: string;
-  apellido2: string;
+  national_id: string;
+  name: string;
+  last_name_1: string;
+  last_name_2: string;
 }
 
-interface FormJuridico extends FormBase {
+interface FormLegal extends FormBase {
   tipoCliente: "juridico";
-  cedulaJuridica: string;
-  nombreEmpresa: string;
+  legal_id: string;
+  name: string;
 }
 
-type FormState = FormFisico | FormJuridico;
+type FormState = FormPhysical | FormLegal;
 
 const emptyBase: FormBase = {
-  domicilio: "",
-  telefonoPrimario: "",
-  telefonoSecundario: "",
+  address: "",
+  primary_phone: "",
+  secondary_phone: "",
   email: "",
+  exonerated: false,
 };
 
-const emptyFisico: FormFisico = {
+const emptyPhysical: FormPhysical = {
   ...emptyBase,
   tipoCliente: "fisico",
-  cedula: "",
-  nombre: "",
-  apellido1: "",
-  apellido2: "",
+  national_id: "",
+  name: "",
+  last_name_1: "",
+  last_name_2: "",
 };
 
-const emptyJuridico: FormJuridico = {
+const emptyLegal: FormLegal = {
   ...emptyBase,
   tipoCliente: "juridico",
-  cedulaJuridica: "",
-  nombreEmpresa: "",
+  legal_id: "",
+  name: "",
 };
 
 // ─── Helpers de display ───────────────────────────
 
-function clienteDisplayNombre(c: ClienteUnificado): string {
-  if (c.tipo === "fisico") return `${c.nombre} ${c.apellido1}`;
-  return c.nombreEmpresa;
+function getClientDisplayName(c: UnifiedClient): string {
+  if (c.tipo === "fisico") return `${c.name} ${c.last_name_1} ${c.last_name_2}`;
+  return c.name;
 }
 
-function clienteDisplayDoc(c: ClienteUnificado): string {
-  return c.tipo === "fisico" ? c.cedula : c.cedulaJuridica;
+function getClientDisplayDoc(c: UnifiedClient): string {
+  if (c.tipo === "fisico") return c.national_id;
+  return c.legal_id;
 }
 
 // ─── Página ───────────────────────────────────────
@@ -115,28 +121,27 @@ function clienteDisplayDoc(c: ClienteUnificado): string {
 function ClientesPage() {
   const queryClient = useQueryClient();
 
-  const [q, setQ] = useState("");
+  const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const pageSize = 8;
 
   const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<ClienteUnificado | null>(null);
-  const [form, setForm] = useState<FormState>(emptyFisico);
-  const [view, setView] = useState<ClienteUnificado | null>(null);
+  const [editing, setEditing] = useState<UnifiedClient | null>(null);
+  const [form, setForm] = useState<FormState>(emptyPhysical);
+  const [view, setView] = useState<UnifiedClient | null>(null);
 
-  // Clientes
-  const { data: clientes = [], isLoading } = useQuery({
+  const { data: clients = [], isLoading } = useQuery({
     queryKey: ["clientes", "todos"],
-    queryFn: fetchTodosClientes,
+    queryFn: fetchAllClients,
     staleTime: 30_000,
   });
 
-  const filtered = clientes.filter((c) => {
-    if (!q) return true;
-    const t = q.toLowerCase();
-    const nombre = clienteDisplayNombre(c).toLowerCase();
-    const doc = clienteDisplayDoc(c).toLowerCase();
-    return nombre.includes(t) || doc.includes(t);
+  const filtered = clients.filter((c) => {
+    if (!search) return true;
+    const term = search.toLowerCase();
+    const name = getClientDisplayName(c).toLowerCase();
+    const doc = getClientDisplayDoc(c).toLowerCase();
+    return name.includes(term) || doc.includes(term);
   });
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -147,11 +152,29 @@ function ClientesPage() {
   const createMutation = useMutation({
     mutationFn: async (data: FormState) => {
       if (data.tipoCliente === "fisico") {
-        const { tipoCliente, ...input } = data;
-        return clientesFisicosApi.create(input);
+        const input: CreatePhysicalClientInput = {
+          nationalId: data.national_id,
+          name: data.name,
+          lastName1: data.last_name_1,
+          lastName2: data.last_name_2,
+          primaryPhone: data.primary_phone,
+          secondaryPhone: data.secondary_phone || null,
+          email: data.email || null,
+          address: data.address,
+          exonerated: data.exonerated,
+        };
+        return physicalClientsApi.create(input);
       } else {
-        const { tipoCliente, ...input } = data;
-        return clientesJuridicosApi.create(input);
+        const input: CreateLegalClientInput = {
+          legalId: data.legal_id,
+          name: data.name,
+          primaryPhone: data.primary_phone,
+          secondaryPhone: data.secondary_phone || null,
+          email: data.email || null,
+          address: data.address,
+          exonerated: data.exonerated,
+        };
+        return legalClientsApi.create(input);
       }
     },
     onSuccess: () => {
@@ -165,11 +188,29 @@ function ClientesPage() {
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: FormState }) => {
       if (data.tipoCliente === "fisico") {
-        const { tipoCliente, ...input } = data;
-        return clientesFisicosApi.update(id, input);
+        const input: Partial<CreatePhysicalClientInput> = {
+          nationalId: data.national_id,
+          name: data.name,
+          lastName1: data.last_name_1,
+          lastName2: data.last_name_2,
+          primaryPhone: data.primary_phone,
+          secondaryPhone: data.secondary_phone || null,
+          email: data.email || null,
+          address: data.address,
+          exonerated: data.exonerated,
+        };
+        return physicalClientsApi.update(id, input);
       } else {
-        const { tipoCliente, ...input } = data;
-        return clientesJuridicosApi.update(id, input);
+        const input: Partial<CreateLegalClientInput> = {
+          legalId: data.legal_id,
+          name: data.name,
+          primaryPhone: data.primary_phone,
+          secondaryPhone: data.secondary_phone || null,
+          email: data.email || null,
+          address: data.address,
+          exonerated: data.exonerated,
+        };
+        return legalClientsApi.update(id, input);
       }
     },
     onSuccess: () => {
@@ -181,9 +222,9 @@ function ClientesPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (c: ClienteUnificado) => {
-      if (c.tipo === "fisico") return clientesFisicosApi.remove(c.id);
-      return clientesJuridicosApi.remove(c.id);
+    mutationFn: (c: UnifiedClient) => {
+      if (c.tipo === "fisico") return physicalClientsApi.remove(c.id);
+      return legalClientsApi.remove(c.id);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["clientes"] });
@@ -196,60 +237,62 @@ function ClientesPage() {
 
   const openCreate = () => {
     setEditing(null);
-    setForm(emptyFisico);
+    setForm(emptyPhysical);
     setOpen(true);
   };
 
-  const openEdit = (c: ClienteUnificado) => {
+  const openEdit = (c: UnifiedClient) => {
     setEditing(c);
     if (c.tipo === "fisico") {
       setForm({
         tipoCliente: "fisico",
-        cedula: c.cedula,
-        nombre: c.nombre,
-        apellido1: c.apellido1,
-        apellido2: c.apellido2,
-        telefonoPrimario: c.telefonoPrimario,
-        telefonoSecundario: c.telefonoSecundario ?? "",
+        national_id: c.national_id,
+        name: c.name,
+        last_name_1: c.last_name_1,
+        last_name_2: c.last_name_2,
+        primary_phone: c.primary_phone,
+        secondary_phone: c.secondary_phone ?? "",
         email: c.email ?? "",
-        domicilio: c.domicilio,
+        address: c.address,
+        exonerated: c.exonerated,
       });
     } else {
       setForm({
         tipoCliente: "juridico",
-        cedulaJuridica: c.cedulaJuridica,
-        nombreEmpresa: c.nombreEmpresa,
-        telefonoPrimario: c.telefonoPrimario,
-        telefonoSecundario: c.telefonoSecundario ?? "",
+        legal_id: c.legal_id,
+        name: c.name,
+        primary_phone: c.primary_phone,
+        secondary_phone: c.secondary_phone ?? "",
         email: c.email ?? "",
-        domicilio: c.domicilio,
+        address: c.address,
+        exonerated: c.exonerated,
       });
     }
     setOpen(true);
   };
 
   const switchTipo = (t: "fisico" | "juridico") => {
-    setForm(t === "fisico" ? emptyFisico : emptyJuridico);
+    setForm(t === "fisico" ? emptyPhysical : emptyLegal);
   };
 
   const submit = () => {
     if (form.tipoCliente === "fisico") {
-      if (!form.nombre || !form.cedula) {
+      if (!form.name || !form.national_id) {
         toast.error("Nombre y cédula requeridos");
         return;
       }
     } else {
-      if (!form.nombreEmpresa || !form.cedulaJuridica) {
+      if (!form.name || !form.legal_id) {
         toast.error("Nombre de empresa y cédula jurídica requeridos");
         return;
       }
     }
-    if (!form.telefonoPrimario) {
+    if (!form.primary_phone) {
       toast.error("Teléfono primario requerido");
       return;
     }
-    if (!form.domicilio) {
-      toast.error("Domicilio requerido");
+    if (!form.address) {
+      toast.error("Dirección requerida");
       return;
     }
 
@@ -265,8 +308,6 @@ function ClientesPage() {
   };
 
   const saving = createMutation.isPending || updateMutation.isPending;
-
-  // ─── Render ─────────────────────────────────
 
   return (
     <div className="space-y-5">
@@ -287,9 +328,9 @@ function ClientesPage() {
           <Input
             className="pl-9"
             placeholder="Buscar por nombre o cédula"
-            value={q}
+            value={search}
             onChange={(e) => {
-              setQ(e.target.value);
+              setSearch(e.target.value);
               setPage(1);
             }}
           />
@@ -305,12 +346,13 @@ function ClientesPage() {
           <>
             <Table>
               <TableHeader>
-                <TableRow className="text-muted-foreground">
+                <TableRow>
                   <TableHead>Nombre</TableHead>
-                  <TableHead>Doc. identidad</TableHead>
+                  <TableHead>Documento</TableHead>
                   <TableHead className="hidden md:table-cell">Tipo</TableHead>
                   <TableHead className="hidden md:table-cell">Teléfono</TableHead>
-                  <TableHead className="hidden md:table-cell">Domicilio</TableHead>
+                  <TableHead className="hidden md:table-cell">Dirección</TableHead>
+                  <TableHead>Exonerado</TableHead>
                   <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
@@ -318,10 +360,10 @@ function ClientesPage() {
                 {paged.map((c) => (
                   <TableRow key={c.id}>
                     <TableCell className="font-medium">
-                      {clienteDisplayNombre(c)}
+                      {getClientDisplayName(c)}
                     </TableCell>
                     <TableCell className="font-mono text-xs">
-                      {clienteDisplayDoc(c)}
+                      {getClientDisplayDoc(c)}
                     </TableCell>
                     <TableCell className="hidden md:table-cell">
                       <Badge variant={c.tipo === "fisico" ? "default" : "secondary"}>
@@ -329,25 +371,26 @@ function ClientesPage() {
                       </Badge>
                     </TableCell>
                     <TableCell className="hidden md:table-cell">
-                      {c.telefonoPrimario}
+                      {c.primary_phone}
                     </TableCell>
                     <TableCell className="hidden md:table-cell truncate max-w-[180px]">
-                      {c.domicilio}
+                      {c.address}
+                    </TableCell>
+                    <TableCell>
+                      {c.exonerated ? (
+                        <Badge variant="outline" className="text-green-600">
+                          Sí
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline">No</Badge>
+                      )}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="inline-flex gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => setView(c)}
-                        >
+                        <Button variant="ghost" size="icon" onClick={() => setView(c)}>
                           <Eye className="h-4 w-4" />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => openEdit(c)}
-                        >
+                        <Button variant="ghost" size="icon" onClick={() => openEdit(c)}>
                           <Pencil className="h-4 w-4" />
                         </Button>
                         <AlertDialog>
@@ -365,9 +408,7 @@ function ClientesPage() {
                             </AlertDialogHeader>
                             <AlertDialogFooter>
                               <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={() => deleteMutation.mutate(c)}
-                              >
+                              <AlertDialogAction onClick={() => deleteMutation.mutate(c)}>
                                 Eliminar
                               </AlertDialogAction>
                             </AlertDialogFooter>
@@ -379,10 +420,7 @@ function ClientesPage() {
                 ))}
                 {paged.length === 0 && (
                   <TableRow>
-                    <TableCell
-                      colSpan={6}
-                      className="text-center py-8 text-muted-foreground"
-                    >
+                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                       Sin resultados
                     </TableCell>
                   </TableRow>
@@ -417,13 +455,11 @@ function ClientesPage() {
         )}
       </Card>
 
-      {/* ─── FORM MODAL ────────────────────────── */}
-      <Dialog open={open} onOpenChange={(v) => { if (!v) setOpen(false); }}>
+      {/* FORM MODAL */}
+      <Dialog open={open} onOpenChange={(v) => !v && setOpen(false)}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>
-              {editing ? "Editar cliente" : "Nuevo cliente"}
-            </DialogTitle>
+            <DialogTitle>{editing ? "Editar cliente" : "Nuevo cliente"}</DialogTitle>
           </DialogHeader>
 
           {!editing && (
@@ -451,29 +487,29 @@ function ClientesPage() {
                 <div>
                   <Label>Cédula</Label>
                   <Input
-                    value={form.cedula}
-                    onChange={(e) => setForm({ ...form, cedula: e.target.value })}
+                    value={form.national_id}
+                    onChange={(e) => setForm({ ...form, national_id: e.target.value })}
                   />
                 </div>
                 <div>
                   <Label>Nombre</Label>
                   <Input
-                    value={form.nombre}
-                    onChange={(e) => setForm({ ...form, nombre: e.target.value })}
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
                   />
                 </div>
                 <div>
-                  <Label>Apellido 1</Label>
+                  <Label>Primer apellido</Label>
                   <Input
-                    value={form.apellido1}
-                    onChange={(e) => setForm({ ...form, apellido1: e.target.value })}
+                    value={form.last_name_1}
+                    onChange={(e) => setForm({ ...form, last_name_1: e.target.value })}
                   />
                 </div>
                 <div>
-                  <Label>Apellido 2</Label>
+                  <Label>Segundo apellido</Label>
                   <Input
-                    value={form.apellido2}
-                    onChange={(e) => setForm({ ...form, apellido2: e.target.value })}
+                    value={form.last_name_2}
+                    onChange={(e) => setForm({ ...form, last_name_2: e.target.value })}
                   />
                 </div>
               </>
@@ -482,40 +518,36 @@ function ClientesPage() {
                 <div>
                   <Label>Cédula jurídica</Label>
                   <Input
-                    value={form.cedulaJuridica}
-                    onChange={(e) =>
-                      setForm({ ...form, cedulaJuridica: e.target.value })
-                    }
+                    value={form.legal_id}
+                    onChange={(e) => setForm({ ...form, legal_id: e.target.value })}
                   />
                 </div>
                 <div className="sm:col-span-2">
                   <Label>Nombre de empresa</Label>
                   <Input
-                    value={form.nombreEmpresa}
-                    onChange={(e) =>
-                      setForm({ ...form, nombreEmpresa: e.target.value })
-                    }
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
                   />
                 </div>
               </>
             )}
 
             <div>
-              <Label>Teléfono primario</Label>
+              <Label>Teléfono principal</Label>
               <Input
-                value={form.telefonoPrimario}
-                onChange={(e) => setFormField("telefonoPrimario", e.target.value)}
+                value={form.primary_phone}
+                onChange={(e) => setFormField("primary_phone", e.target.value)}
               />
             </div>
             <div>
               <Label>Teléfono secundario</Label>
               <Input
-                value={form.telefonoSecundario}
-                onChange={(e) => setFormField("telefonoSecundario", e.target.value)}
+                value={form.secondary_phone}
+                onChange={(e) => setFormField("secondary_phone", e.target.value)}
               />
             </div>
             <div className="sm:col-span-2">
-              <Label>Correo</Label>
+              <Label>Correo electrónico</Label>
               <Input
                 type="email"
                 value={form.email}
@@ -523,11 +555,21 @@ function ClientesPage() {
               />
             </div>
             <div className="sm:col-span-2">
-              <Label>Domicilio</Label>
+              <Label>Dirección</Label>
               <Input
-                value={form.domicilio}
-                onChange={(e) => setFormField("domicilio", e.target.value)}
+                value={form.address}
+                onChange={(e) => setFormField("address", e.target.value)}
               />
+            </div>
+            <div className="sm:col-span-2 flex items-center gap-2">
+              <Checkbox
+                id="exonerated"
+                checked={form.exonerated}
+                onCheckedChange={(checked) => setFormField("exonerated", checked === true)}
+              />
+              <Label htmlFor="exonerated" className="cursor-pointer">
+                Cliente exonerado de impuestos
+              </Label>
             </div>
           </div>
 
@@ -543,53 +585,62 @@ function ClientesPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ─── VIEW MODAL ────────────────────────── */}
+      {/* VIEW MODAL */}
       <Dialog open={!!view} onOpenChange={(v) => !v && setView(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>
-              {view ? clienteDisplayNombre(view) : ""}
-            </DialogTitle>
+            <DialogTitle>{view ? getClientDisplayName(view) : ""}</DialogTitle>
           </DialogHeader>
           {view && (
             <div className="space-y-2 text-sm">
-              <Row
-                label="Tipo"
-                value={view.tipo === "fisico" ? "Persona física" : "Persona jurídica"}
-              />
-              <Row
-                label={view.tipo === "fisico" ? "Cédula" : "Cédula jurídica"}
-                value={clienteDisplayDoc(view)}
-              />
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">Tipo</span>
+                <span>{view.tipo === "fisico" ? "Persona física" : "Persona jurídica"}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">
+                  {view.tipo === "fisico" ? "Cédula" : "Cédula jurídica"}
+                </span>
+                <span className="font-mono">{getClientDisplayDoc(view)}</span>
+              </div>
               {view.tipo === "fisico" && (
-                <Row
-                  label="Nombre completo"
-                  value={`${view.nombre} ${view.apellido1} ${view.apellido2}`}
-                />
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">Nombre completo</span>
+                  <span>{`${view.name} ${view.last_name_1} ${view.last_name_2}`}</span>
+                </div>
               )}
-              <Row label="Teléfono" value={view.telefonoPrimario} />
-              {view.telefonoSecundario && (
-                <Row label="Teléfono 2" value={view.telefonoSecundario} />
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">Teléfono</span>
+                <span>{view.primary_phone}</span>
+              </div>
+              {view.secondary_phone && (
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">Teléfono 2</span>
+                  <span>{view.secondary_phone}</span>
+                </div>
               )}
-              {view.email && <Row label="Correo" value={view.email} />}
-              <Row label="Domicilio" value={view.domicilio} />
-              <Row
-                label="Registrado"
-                value={new Date(view.createdAt).toLocaleDateString()}
-              />
+              {view.email && (
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">Correo</span>
+                  <span>{view.email}</span>
+                </div>
+              )}
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">Dirección</span>
+                <span className="text-right">{view.address}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">Exonerado</span>
+                <span>{view.exonerated ? "Sí" : "No"}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">Registrado</span>
+                <span>{new Date(view.createdAt).toLocaleDateString()}</span>
+              </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
-    </div>
-  );
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between gap-4">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium text-right">{value}</span>
     </div>
   );
 }

@@ -19,16 +19,19 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { fetchTodosClientes } from "@/services/api/clientes";
+import { fetchAllClients, physicalClientsApi, legalClientsApi } from "@/services/api/clientes";
+import { productosApi } from "@/services/api/productos";
 import {
   mantenimientosApi,
-  fetchTodosMantenimientos,
-  type CreateMantenimientoInput,
+  fetchAllMaintenances,
+  type CreateMaintenanceInput,
 } from "@/services/api/mantenimientos";
-import type { ClienteUnificado } from "@/models";
-import { Plus, Loader2 } from "lucide-react";
+import type { UnifiedClient, Product } from "@/models";
+import { Plus, Loader2, Trash2, Package } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/mantenimiento")({
@@ -39,109 +42,227 @@ export const Route = createFileRoute("/mantenimiento")({
   ),
 });
 
+interface MaintenanceProductInput {
+  productId: string;
+  amount: number;
+  productName?: string;
+}
+
 function MantenimientoPage() {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [filtro, setFiltro] = useState<string>("all");
-  const [form, setForm] = useState<CreateMantenimientoInput>({
-    descripcion: "",
-    clienteFisicoId: undefined,
-    clienteJuridicoId: undefined,
+  const [filterClientId, setFilterClientId] = useState<string>("all");
+  const [form, setForm] = useState<{
+    description: string;
+    clientId: string;
+    clientType: "fisico" | "juridico" | null;
+    products: MaintenanceProductInput[];
+  }>({
+    description: "",
+    clientId: "",
+    clientType: null,
+    products: [],
   });
 
-  // Cargar clientes para el selector y filtros
-  const { data: clientes = [], isLoading: loadingClientes } = useQuery({
+  // Product selector state
+  const [selectedProductId, setSelectedProductId] = useState<string>("");
+  const [productAmount, setProductAmount] = useState<number>(1);
+
+  // Cargar clientes
+  const { data: clients = [], isLoading: loadingClients } = useQuery({
     queryKey: ["clientes", "todos"],
-    queryFn: fetchTodosClientes,
+    queryFn: fetchAllClients,
   });
 
-  // Cargar mantenimientos unificados
+  // Cargar productos
+  const { data: productsPage, isLoading: loadingProducts } = useQuery({
+    queryKey: ["productos", "list"],
+    queryFn: () => productosApi.list(1, 200),
+  });
+  const products = productsPage?.data ?? [];
+
+  // Cargar mantenimientos
   const { data: mantData, isLoading: loadingMant } = useQuery({
     queryKey: ["mantenimientos", "todos"],
-    queryFn: () => fetchTodosMantenimientos(undefined, 1, 200),
+    queryFn: () => fetchAllMaintenances(1, 200),
   });
 
   const mantList = mantData?.data ?? [];
-  const filtered = mantList.filter(
-    (m) => filtro === "all" || m.clienteFisicoId === filtro || m.clienteJuridicoId === filtro,
-  );
 
-  // Helper para obtener nombre de cliente desde su ID
-  const clienteNombre = (m: (typeof mantList)[number]) => {
-    const id = m.clienteFisicoId ?? m.clienteJuridicoId;
-    return clientes.find((c) => c.id === id);
+  // Filtrar mantenimientos por cliente
+  const filteredMant = mantList.filter((m) => {
+    if (filterClientId === "all") return true;
+    const clientId = m.physical_client_id ?? m.legal_client_id;
+    return clientId === filterClientId;
+  });
+
+  // Helper para obtener nombre del cliente
+  const getClientName = (m: (typeof mantList)[number]) => {
+    if (m.physical_client) {
+      return `${m.physical_client.name} ${m.physical_client.last_name_1}`;
+    }
+    if (m.legal_client) {
+      return m.legal_client.name;
+    }
+    const clientId = m.physical_client_id ?? m.legal_client_id;
+    const client = clients.find((c) => c.id === clientId);
+    if (client) {
+      return client.tipo === "fisico"
+        ? `${client.name} ${client.last_name_1}`
+        : client.name;
+    }
+    return "—";
+  };
+
+  // Agregar producto al formulario
+  const addProduct = () => {
+    if (!selectedProductId) {
+      toast.error("Seleccione un producto");
+      return;
+    }
+    if (productAmount < 1) {
+      toast.error("La cantidad debe ser mayor a 0");
+      return;
+    }
+
+    const product = products.find((p) => p.id === selectedProductId);
+    if (!product) return;
+
+    // Verificar si ya existe el producto
+    const existing = form.products.find((p) => p.productId === selectedProductId);
+    if (existing) {
+      setForm({
+        ...form,
+        products: form.products.map((p) =>
+          p.productId === selectedProductId
+            ? { ...p, amount: p.amount + productAmount }
+            : p
+        ),
+      });
+    } else {
+      setForm({
+        ...form,
+        products: [
+          ...form.products,
+          {
+            productId: selectedProductId,
+            amount: productAmount,
+            productName: product.name,
+          },
+        ],
+      });
+    }
+
+    setSelectedProductId("");
+    setProductAmount(1);
+  };
+
+  const removeProduct = (index: number) => {
+    setForm({
+      ...form,
+      products: form.products.filter((_, i) => i !== index),
+    });
   };
 
   const createMutation = useMutation({
-    mutationFn: (data: CreateMantenimientoInput) => {
-      if (data.clienteFisicoId) {
-        return mantenimientosApi.createFisico(data);
+    mutationFn: async (data: typeof form) => {
+      if (!data.clientId || !data.clientType) {
+        throw new Error("Debe seleccionar un cliente");
       }
-      if (data.clienteJuridicoId) {
-        return mantenimientosApi.createJuridico(data);
+
+      const input: CreateMaintenanceInput = {
+        description: data.description,
+        maintenanceProducts: data.products.map((p) => ({
+          productId: p.productId,
+          amount: p.amount,
+        })),
+      };
+
+      if (data.clientType === "fisico") {
+        return mantenimientosApi.createPhysical({
+          ...input,
+          physicalClientId: data.clientId,
+        });
+      } else {
+        return mantenimientosApi.createLegal({
+          ...input,
+          legalClientId: data.clientId,
+        });
       }
-      throw new Error("Debe seleccionar un cliente");
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["mantenimientos"] });
-      toast.success("Mantenimiento registrado");
+      toast.success("Mantenimiento registrado correctamente");
       setOpen(false);
-      setForm({ descripcion: "", clienteFisicoId: undefined, clienteJuridicoId: undefined });
+      setForm({
+        description: "",
+        clientId: "",
+        clientType: null,
+        products: [],
+      });
     },
     onError: (err: Error) => toast.error(err.message),
   });
 
+  const handleClientChange = (clientId: string) => {
+    const client = clients.find((c) => c.id === clientId);
+    if (!client) return;
+
+    setForm({
+      ...form,
+      clientId: client.id,
+      clientType: client.tipo,
+      products: [], // Reset products when client changes
+    });
+  };
+
   const submit = () => {
-    if (!form.clienteFisicoId && !form.clienteJuridicoId) {
-      toast.error("Selecciona un cliente");
+    if (!form.clientId) {
+      toast.error("Seleccione un cliente");
       return;
     }
-    if (!form.descripcion.trim()) {
+    if (!form.description.trim()) {
       toast.error("La descripción es requerida");
+      return;
+    }
+    if (form.products.length === 0) {
+      toast.error("Agregue al menos un producto utilizado");
       return;
     }
     createMutation.mutate(form);
   };
 
-  const handleClienteChange = (clienteId: string) => {
-    const c = clientes.find((x) => x.id === clienteId);
-    if (!c) return;
-    if (c.tipo === "fisico") {
-      setForm({ descripcion: "", clienteFisicoId: c.id, clienteJuridicoId: undefined });
-    } else {
-      setForm({ descripcion: "", clienteFisicoId: undefined, clienteJuridicoId: c.id });
-    }
-  };
-
-  const loading = loadingMant || loadingClientes;
+  const loading = loadingMant || loadingClients;
 
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Mantenimiento</h1>
-          <p className="text-muted-foreground text-sm">Registro de servicios técnicos</p>
+          <p className="text-muted-foreground text-sm">
+            Registro de intervenciones técnicas y productos utilizados
+          </p>
         </div>
-        <Button onClick={() => setOpen(true)} disabled={loadingClientes}>
+        <Button onClick={() => setOpen(true)} disabled={loadingClients || loadingProducts}>
           <Plus className="h-4 w-4 mr-2" />
-          Nuevo
+          Nuevo mantenimiento
         </Button>
       </div>
 
       <Card className="p-4">
         <div className="mb-4 max-w-sm">
           <Label className="mb-1.5 block">Filtrar por cliente</Label>
-          <Select value={filtro} onValueChange={setFiltro}>
+          <Select value={filterClientId} onValueChange={setFilterClientId}>
             <SelectTrigger>
-              <SelectValue placeholder="Todos" />
+              <SelectValue placeholder="Todos los clientes" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              {clientes.map((c) => (
+              <SelectItem value="all">Todos los clientes</SelectItem>
+              {clients.map((c) => (
                 <SelectItem key={c.id} value={c.id}>
                   {c.tipo === "fisico"
-                    ? `${c.nombre} ${c.apellido1}`
-                    : c.nombreEmpresa}
+                    ? `${c.name} ${c.last_name_1} ${c.last_name_2}`
+                    : c.name}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -151,80 +272,168 @@ function MantenimientoPage() {
         {loading ? (
           <div className="space-y-2">
             {[1, 2, 3].map((i) => (
-              <Skeleton key={i} className="h-16 w-full rounded-md" />
+              <Skeleton key={i} className="h-24 w-full rounded-md" />
             ))}
           </div>
         ) : (
-          <div className="space-y-2">
-            {filtered.map((m) => {
-              const c = clienteNombre(m);
+          <div className="space-y-3">
+            {filteredMant.map((m) => {
+              const clientName = getClientName(m);
               return (
                 <div
                   key={m.id}
-                  className="p-3 border rounded-md flex flex-wrap justify-between gap-2"
+                  className="p-4 border rounded-lg space-y-2"
                 >
-                  <div>
-                    <div className="font-medium">
-                      {c
-                        ? c.tipo === "fisico"
-                          ? `${c.nombre} ${c.apellido1}`
-                          : c.nombreEmpresa
-                        : "—"}
+                  <div className="flex flex-wrap justify-between items-start gap-2">
+                    <div>
+                      <div className="font-medium">{clientName}</div>
+                      <div className="text-sm text-muted-foreground mt-1">
+                        {m.description}
+                      </div>
                     </div>
-                    <div className="text-sm text-muted-foreground">{m.descripcion}</div>
+                    <div className="text-right text-xs text-muted-foreground">
+                      <div>{new Date(m.date).toLocaleString()}</div>
+                      <div>Responsable: {m.responsible?.username ?? "—"}</div>
+                    </div>
                   </div>
-                  <div className="text-right text-xs text-muted-foreground">
-                    <div>{new Date(m.fecha).toLocaleString()}</div>
-                    <div>Por: {m.responsable?.name ?? "—"}</div>
-                  </div>
+
+                  {/* Mostrar productos utilizados */}
+                  {m.maintenanceProducts.length > 0 && (
+                    <div className="mt-2 pt-2 border-t">
+                      <div className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1">
+                        <Package className="h-3 w-3" />
+                        Productos utilizados:
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {m.maintenanceProducts.map((mp) => (
+                          <Badge key={mp.id} variant="secondary" className="text-xs">
+                            {mp.product?.name ?? mp.product_id} x{mp.amount}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
-            {filtered.length === 0 && (
+            {filteredMant.length === 0 && (
               <p className="text-center py-8 text-muted-foreground text-sm">
-                Sin registros
+                No hay registros de mantenimiento
               </p>
             )}
           </div>
         )}
       </Card>
 
-      <Dialog open={open} onOpenChange={(v) => { if (!v) setOpen(false); }}>
-        <DialogContent>
+      {/* Dialog para nuevo mantenimiento */}
+      <Dialog open={open} onOpenChange={(v) => !v && setOpen(false)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Nuevo mantenimiento</DialogTitle>
+            <DialogTitle>Registrar nuevo mantenimiento</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3">
+          <div className="space-y-4">
+            {/* Selección de cliente */}
             <div>
               <Label>Cliente</Label>
               <Select
-                value={form.clienteFisicoId ?? form.clienteJuridicoId ?? ""}
-                onValueChange={handleClienteChange}
+                value={form.clientId}
+                onValueChange={handleClientChange}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Selecciona un cliente" />
+                  <SelectValue placeholder="Seleccione un cliente" />
                 </SelectTrigger>
                 <SelectContent>
-                  {clientes.map((c) => (
+                  {clients.map((c) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.tipo === "fisico"
-                        ? `${c.nombre} ${c.apellido1} (Física)`
-                        : `${c.nombreEmpresa} (Jurídica)`}
+                        ? `${c.name} ${c.last_name_1} ${c.last_name_2}`
+                        : c.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Productos utilizados */}
+            <div className="border rounded-md p-3 space-y-3">
+              <Label>Productos utilizados</Label>
+              <div className="grid grid-cols-12 gap-2 items-end">
+                <div className="col-span-7">
+                  <Select value={selectedProductId} onValueChange={setSelectedProductId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccione producto" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {products.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.name} - ₡{p.unit_price}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="col-span-3">
+                  <Input
+                    type="number"
+                    min={1}
+                    value={productAmount}
+                    onChange={(e) => setProductAmount(Math.max(1, parseInt(e.target.value) || 1))}
+                    placeholder="Cantidad"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <Button
+                    className="w-full"
+                    onClick={addProduct}
+                    disabled={!selectedProductId}
+                    type="button"
+                  >
+                    Agregar
+                  </Button>
+                </div>
+              </div>
+
+              {/* Lista de productos agregados */}
+              <div className="space-y-1 mt-2">
+                {form.products.map((p, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between p-2 bg-muted rounded-md text-sm"
+                  >
+                    <span>
+                      {p.productName} x{p.amount}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeProduct(idx)}
+                      type="button"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ))}
+                {form.products.length === 0 && (
+                  <p className="text-xs text-muted-foreground text-center py-2">
+                    No hay productos agregados
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Descripción */}
             <div>
-              <Label>Descripción</Label>
+              <Label>Descripción del trabajo realizado</Label>
               <Textarea
-                value={form.descripcion}
-                onChange={(e) => setForm({ ...form, descripcion: e.target.value })}
-                placeholder="Detalle del trabajo realizado"
+                value={form.description}
+                onChange={(e) => setForm({ ...form, description: e.target.value })}
+                placeholder="Detalle de la intervención técnica, fallas encontradas, soluciones aplicadas..."
+                rows={4}
               />
             </div>
+
             <p className="text-xs text-muted-foreground">
-              El responsable se asigna automáticamente según la sesión.
+              El responsable se asigna automáticamente según el usuario que inició sesión.
             </p>
           </div>
           <DialogFooter>
@@ -236,10 +445,8 @@ function MantenimientoPage() {
               Cancelar
             </Button>
             <Button onClick={submit} disabled={createMutation.isPending}>
-              {createMutation.isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : null}
-              Registrar
+              {createMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Registrar mantenimiento
             </Button>
           </DialogFooter>
         </DialogContent>

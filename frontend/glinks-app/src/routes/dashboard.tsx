@@ -3,10 +3,10 @@ import { Protected } from "@/components/Protected";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useQuery } from "@tanstack/react-query";
-import { clientesFisicosApi, clientesJuridicosApi } from "@/services/api/clientes";
-import { fetchTodosMantenimientos } from "@/services/api/mantenimientos";
+import { physicalClientsApi, legalClientsApi } from "@/services/api/clientes";
 import { productosApi } from "@/services/api/productos";
-import { facturasApi } from "@/services/api/facturas";
+import { facturasApi, calculateInvoiceTotals } from "@/services/api/facturas";
+import { fetchAllMaintenances } from "@/services/api/mantenimientos";
 import { Users, Wrench, Package, Receipt } from "lucide-react";
 
 export const Route = createFileRoute("/dashboard")({
@@ -18,50 +18,73 @@ export const Route = createFileRoute("/dashboard")({
 });
 
 function Dashboard() {
-  const { data: resumen, isLoading: loadingResumen } = useQuery({
-    queryKey: ["productos", "resumen"],
-    queryFn: () => productosApi.resumen(),
-  });
-
-  const { data: facturasPage, isLoading: loadingFacturas } = useQuery({
-    queryKey: ["facturas", { page: 1, limit: 5 }],
-    queryFn: () => facturasApi.list(1, 5),
-  });
-
-  const { data: totalFisicos } = useQuery({
+  const { data: physicalPage, isLoading: loadingPhysical } = useQuery({
     queryKey: ["clientes-fisicos", "count"],
-    queryFn: () => clientesFisicosApi.list(1, 1),
+    queryFn: () => physicalClientsApi.list(1, 1),
   });
 
-  const { data: totalJuridicos } = useQuery({
+  const { data: legalPage, isLoading: loadingLegal } = useQuery({
     queryKey: ["clientes-juridicos", "count"],
-    queryFn: () => clientesJuridicosApi.list(1, 1),
+    queryFn: () => legalClientsApi.list(1, 1),
   });
 
-  const { data: mantPage } = useQuery({
+  const { data: productsPage, isLoading: loadingProducts } = useQuery({
+    queryKey: ["productos", "list"],
+    queryFn: () => productosApi.list(1, 200),
+  });
+
+  const { data: invoicesPage, isLoading: loadingInvoices } = useQuery({
+    queryKey: ["facturas", "list"],
+    queryFn: () => facturasApi.list(1, 100),
+  });
+
+  const { data: mantData, isLoading: loadingMant } = useQuery({
     queryKey: ["mantenimientos", "count"],
-    queryFn: () => fetchTodosMantenimientos(undefined, 1, 1),
+    queryFn: () => fetchAllMaintenances(1, 1),
   });
 
   const loading =
-    loadingResumen || loadingFacturas || !totalFisicos || !totalJuridicos || !mantPage;
-  const totalClientes = (totalFisicos?.total ?? 0) + (totalJuridicos?.total ?? 0);
-  const totalMant = mantPage?.total ?? 0;
+    loadingPhysical ||
+    loadingLegal ||
+    loadingProducts ||
+    loadingInvoices ||
+    loadingMant;
+
+  const totalClients = (physicalPage?.total ?? 0) + (legalPage?.total ?? 0);
+  const totalMaintenances = mantData?.total ?? 0;
+  const totalProducts = productsPage?.data.length ?? 0;
+  const billableProducts = productsPage?.data.filter((p) => p.billable).length ?? 0;
+
+  // Calcular total facturado en facturas activas (sin anuladas)
+  const totalBilled =
+    invoicesPage?.data.reduce((sum, inv) => {
+      const { total } = calculateInvoiceTotals(inv);
+      return sum + total;
+    }, 0) ?? 0;
 
   const stats = [
-    { label: "Clientes", value: totalClientes, icon: Users, color: "bg-blue-500/10 text-blue-600" },
-    { label: "Mantenimientos", value: totalMant, icon: Wrench, color: "bg-amber-500/10 text-amber-600" },
     {
-      label: "Productos en uso",
-      value: loadingResumen ? "…" : `${resumen?.routers.enUso ?? 0} / ${(resumen?.routers.total ?? 0) + (resumen?.poes.total ?? 0)}`,
+      label: "Clientes",
+      value: totalClients,
+      icon: Users,
+      color: "bg-blue-500/10 text-blue-600",
+    },
+    {
+      label: "Mantenimientos",
+      value: totalMaintenances,
+      icon: Wrench,
+      color: "bg-amber-500/10 text-amber-600",
+    },
+    {
+      label: "Productos",
+      value: loading ? "…" : `${billableProducts} / ${totalProducts}`,
+      subtitle: "facturables / total",
       icon: Package,
       color: "bg-emerald-500/10 text-emerald-600",
     },
     {
-      label: "Facturado (activo)",
-      value: loadingFacturas
-        ? "…"
-        : `₡${facturasPage?.data.filter((f) => f.estado === "activa").reduce((s, f) => s + f.total, 0).toFixed(2) ?? "0.00"}`,
+      label: "Total facturado",
+      value: loading ? "…" : `₡${totalBilled.toFixed(2)}`,
       icon: Receipt,
       color: "bg-purple-500/10 text-purple-600",
     },
@@ -86,50 +109,48 @@ function Dashboard() {
               {loading ? <Skeleton className="h-7 w-16" /> : s.value}
             </div>
             <div className="text-sm text-muted-foreground">{s.label}</div>
+            {s.subtitle && (
+              <div className="text-xs text-muted-foreground mt-1">{s.subtitle}</div>
+            )}
           </Card>
         ))}
       </div>
 
       <Card className="p-5">
         <h2 className="font-semibold mb-3">Últimas facturas</h2>
-        {loadingFacturas ? (
+        {loadingInvoices ? (
           <div className="space-y-2">
             {[1, 2, 3].map((i) => (
               <Skeleton key={i} className="h-14 w-full rounded-md" />
             ))}
           </div>
-        ) : facturasPage && facturasPage.data.length > 0 ? (
+        ) : invoicesPage && invoicesPage.data.length > 0 ? (
           <div className="space-y-2">
-            {facturasPage.data.slice(0, 5).map((f) => {
-              const clienteNombre =
-                f.clienteFisico?.nombre ??
-                f.clienteJuridico?.nombreEmpresa ??
-                "—";
+            {invoicesPage.data.slice(0, 5).map((inv) => {
+              const clientName = inv.physicalClient
+                ? `${inv.physicalClient.name} ${inv.physicalClient.last_name_1}`
+                : inv.legalClient?.name ?? "—";
+              const { total } = calculateInvoiceTotals(inv);
               return (
                 <div
-                  key={f.id}
+                  key={inv.id}
                   className="flex items-center justify-between p-3 rounded-md bg-muted/50"
                 >
                   <div>
-                    <div className="font-medium">{f.numero}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {clienteNombre}
-                    </div>
+                    <div className="font-medium">{new Date(inv.date).toLocaleDateString()}</div>
+                    <div className="text-xs text-muted-foreground">{clientName}</div>
                   </div>
                   <div className="text-right">
-                    <div className="font-semibold">₡{f.total.toFixed(2)}</div>
-                    <div
-                      className={`text-xs ${f.estado === "anulada" ? "text-destructive" : "text-emerald-600"}`}
-                    >
-                      {f.estado}
-                    </div>
+                    <div className="font-semibold">₡{total.toFixed(2)}</div>
                   </div>
                 </div>
               );
             })}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">Sin facturas</p>
+          <p className="text-sm text-muted-foreground text-center py-4">
+            No hay facturas registradas
+          </p>
         )}
       </Card>
     </div>

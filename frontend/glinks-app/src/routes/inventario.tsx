@@ -18,6 +18,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -30,8 +32,8 @@ import {
 } from "@/components/ui/table";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { productosApi, type CreateProductoInput } from "@/services/api/productos";
-import type { Producto, ProductoTipo, ProductoEstado } from "@/models";
+import { productosApi, type CreateProductInput } from "@/services/api/productos";
+import type { Product, ProductType } from "@/models";
 import { Plus, Pencil, Search, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -43,21 +45,30 @@ export const Route = createFileRoute("/inventario")({
   ),
 });
 
-const emptyForm: CreateProductoInput = {
-  nombre: "",
-  tipo: "Router",
-  serial: "",
-  stock: 0,
-  precio: 0,
+const emptyForm: CreateProductInput = {
+  name: "",
+  type: "Router",
+  description: "",
+  unit_price: 0,
+  billable: true,
 };
+
+const productTypes: ProductType[] = [
+  "Router",
+  "PoE",
+  "Tubo metálico",
+  "Antena AP",
+  "Cable",
+  "Otro",
+];
 
 function InventarioPage() {
   const queryClient = useQueryClient();
-  const [q, setQ] = useState("");
-  const [filtroTipo, setFiltroTipo] = useState<string>("all");
+  const [search, setSearch] = useState("");
+  const [filterType, setFilterType] = useState<string>("all");
   const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<Producto | null>(null);
-  const [form, setForm] = useState<CreateProductoInput>(emptyForm);
+  const [editing, setEditing] = useState<Product | null>(null);
+  const [form, setForm] = useState<CreateProductInput>(emptyForm);
 
   const { data: pageData, isLoading } = useQuery({
     queryKey: ["productos", "list"],
@@ -65,7 +76,7 @@ function InventarioPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: CreateProductoInput) => productosApi.create(data),
+    mutationFn: (data: CreateProductInput) => productosApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["productos"] });
       toast.success("Producto registrado");
@@ -75,7 +86,7 @@ function InventarioPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<CreateProductoInput> & { estado?: string } }) =>
+    mutationFn: ({ id, data }: { id: string; data: Partial<CreateProductInput> }) =>
       productosApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["productos"] });
@@ -85,18 +96,19 @@ function InventarioPage() {
     onError: (err: Error) => toast.error(err.message),
   });
 
-  const productos = (pageData?.data ?? []).filter((p) => {
-    const t = q.toLowerCase();
-    const matchQ =
-      !t ||
-      p.nombre.toLowerCase().includes(t) ||
-      p.serial.toLowerCase().includes(t);
-    const matchT = filtroTipo === "all" || p.tipo === filtroTipo;
-    return matchQ && matchT;
+  const products = (pageData?.data ?? []).filter((p) => {
+    const term = search.toLowerCase();
+    const matchSearch =
+      !term ||
+      p.name.toLowerCase().includes(term) ||
+      p.description.toLowerCase().includes(term);
+    const matchType = filterType === "all" || p.type === filterType;
+    return matchSearch && matchType;
   });
 
-  const total = pageData?.data.length ?? 0;
-  const enUso = pageData?.data.filter((p) => p.estado === "en_uso").length ?? 0;
+  const totalProducts = pageData?.data.length ?? 0;
+  const billableCount = pageData?.data.filter((p) => p.billable).length ?? 0;
+  const nonBillableCount = totalProducts - billableCount;
 
   const openCreate = () => {
     setEditing(null);
@@ -104,25 +116,29 @@ function InventarioPage() {
     setOpen(true);
   };
 
-  const openEdit = (p: Producto) => {
+  const openEdit = (p: Product) => {
     setEditing(p);
     setForm({
-      nombre: p.nombre,
-      tipo: p.tipo,
-      serial: p.serial,
-      stock: p.stock,
-      precio: p.precio,
+      name: p.name,
+      type: p.type,
+      description: p.description,
+      unit_price: p.unit_price,
+      billable: p.billable,
     });
     setOpen(true);
   };
 
   const submit = () => {
-    if (!form.nombre) {
+    if (!form.name.trim()) {
       toast.error("Nombre requerido");
       return;
     }
+    if (form.unit_price < 0) {
+      toast.error("El precio no puede ser negativo");
+      return;
+    }
     if (editing) {
-      updateMutation.mutate({ id: editing.id, data: { ...form, estado: editing.estado } });
+      updateMutation.mutate({ id: editing.id, data: form });
     } else {
       createMutation.mutate(form);
     }
@@ -132,64 +148,64 @@ function InventarioPage() {
 
   return (
     <div className="space-y-5">
-      {/* HEADER */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Inventario</h1>
-          <p className="text-muted-foreground text-sm">Routers y equipos PoE</p>
+          <p className="text-muted-foreground text-sm">
+            Gestión de productos y servicios
+          </p>
         </div>
         <Button onClick={openCreate}>
           <Plus className="h-4 w-4 mr-2" />
-          Nuevo
+          Nuevo producto
         </Button>
       </div>
 
-      {/* STATS */}
+      {/* Stats */}
       <div className="grid grid-cols-3 gap-3">
         <Card className="p-4">
-          <div className="text-xs text-muted-foreground">Total</div>
+          <div className="text-xs text-muted-foreground">Total productos</div>
           <div className="text-2xl font-bold">
-            {isLoading ? <Skeleton className="h-8 w-10" /> : total}
+            {isLoading ? <Skeleton className="h-8 w-10" /> : totalProducts}
           </div>
         </Card>
         <Card className="p-4">
-          <div className="text-xs text-muted-foreground">En uso</div>
+          <div className="text-xs text-muted-foreground">Facturables</div>
           <div className="text-2xl font-bold">
-            {isLoading ? <Skeleton className="h-8 w-10" /> : enUso}
+            {isLoading ? <Skeleton className="h-8 w-10" /> : billableCount}
           </div>
         </Card>
         <Card className="p-4">
-          <div className="text-xs text-muted-foreground">Disponibles</div>
+          <div className="text-xs text-muted-foreground">No facturables</div>
           <div className="text-2xl font-bold">
-            {isLoading ? <Skeleton className="h-8 w-10" /> : total - enUso}
+            {isLoading ? <Skeleton className="h-8 w-10" /> : nonBillableCount}
           </div>
         </Card>
       </div>
 
-      {/* TABLE */}
+      {/* Table */}
       <Card className="p-4">
         <div className="grid sm:grid-cols-2 gap-3 mb-4">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               className="pl-9"
-              placeholder="Buscar..."
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
+              placeholder="Buscar por nombre o descripción..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          <Select value={filtroTipo} onValueChange={setFiltroTipo}>
+          <Select value={filterType} onValueChange={setFilterType}>
             <SelectTrigger>
-              <SelectValue />
+              <SelectValue placeholder="Filtrar por tipo" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              <SelectItem value="Router">Router</SelectItem>
-              <SelectItem value="PoE">PoE</SelectItem>
-              <SelectItem value="Antena AP">Antena AP</SelectItem>
-              <SelectItem value="Tubo metálico">Tubo metálico</SelectItem>
-              <SelectItem value="Cable">Cable</SelectItem>
-              <SelectItem value="Otro">Otro</SelectItem>
+              <SelectItem value="all">Todos los tipos</SelectItem>
+              {productTypes.map((type) => (
+                <SelectItem key={type} value={type}>
+                  {type}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -203,26 +219,34 @@ function InventarioPage() {
         ) : (
           <Table>
             <TableHeader>
-              <TableRow className="text-muted-foreground">
-                <TableHead>Producto</TableHead>
+              <TableRow>
+                <TableHead>Nombre</TableHead>
                 <TableHead>Tipo</TableHead>
-                <TableHead className="hidden md:table-cell">Serial</TableHead>
-                <TableHead>Stock</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead />
+                <TableHead className="hidden md:table-cell">Descripción</TableHead>
+                <TableHead>Precio</TableHead>
+                <TableHead>Facturable</TableHead>
+                <TableHead className="text-right"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {productos.map((p) => (
+              {products.map((p) => (
                 <TableRow key={p.id}>
-                  <TableCell className="font-medium">{p.nombre}</TableCell>
-                  <TableCell>{p.tipo}</TableCell>
-                  <TableCell className="hidden md:table-cell">{p.serial}</TableCell>
-                  <TableCell>{p.stock}</TableCell>
+                  <TableCell className="font-medium">{p.name}</TableCell>
                   <TableCell>
-                    <Badge variant={p.estado === "disponible" ? "default" : "secondary"}>
-                      {p.estado === "disponible" ? "Disponible" : "En uso"}
-                    </Badge>
+                    <Badge variant="outline">{p.type}</Badge>
+                  </TableCell>
+                  <TableCell className="hidden md:table-cell text-muted-foreground max-w-[200px] truncate">
+                    {p.description || "—"}
+                  </TableCell>
+                  <TableCell>₡{p.unit_price.toFixed(2)}</TableCell>
+                  <TableCell>
+                    {p.billable ? (
+                      <Badge variant="default" className="bg-green-600">
+                        Sí
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary">No</Badge>
+                    )}
                   </TableCell>
                   <TableCell className="text-right">
                     <Button variant="ghost" size="icon" onClick={() => openEdit(p)}>
@@ -231,10 +255,10 @@ function InventarioPage() {
                   </TableCell>
                 </TableRow>
               ))}
-              {productos.length === 0 && (
+              {products.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                    Sin productos
+                    No hay productos registrados
                   </TableCell>
                 </TableRow>
               )}
@@ -243,59 +267,67 @@ function InventarioPage() {
         )}
       </Card>
 
-      {/* MODAL */}
-      <Dialog open={open} onOpenChange={(v) => { if (!v) setOpen(false); }}>
+      {/* Modal */}
+      <Dialog open={open} onOpenChange={(v) => !v && setOpen(false)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{editing ? "Editar producto" : "Nuevo producto"}</DialogTitle>
           </DialogHeader>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2">
+          <div className="space-y-3">
+            <div>
               <Label>Nombre</Label>
               <Input
-                value={form.nombre}
-                onChange={(e) => setForm({ ...form, nombre: e.target.value })}
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="Ej: Router MikroTik hAP ac2"
               />
             </div>
             <div>
               <Label>Tipo</Label>
               <Select
-                value={form.tipo}
-                onValueChange={(v) => setForm({ ...form, tipo: v as ProductoTipo })}
+                value={form.type}
+                onValueChange={(v) => setForm({ ...form, type: v })}
               >
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Router">Router</SelectItem>
-                  <SelectItem value="PoE">PoE</SelectItem>
-                  <SelectItem value="Antena AP">Antena AP</SelectItem>
-                  <SelectItem value="Tubo metálico">Tubo metálico</SelectItem>
-                  <SelectItem value="Cable">Cable</SelectItem>
-                  <SelectItem value="Otro">Otro</SelectItem>
+                  {productTypes.map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {type}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <Label>Serial</Label>
-              <Input
-                value={form.serial}
-                onChange={(e) => setForm({ ...form, serial: e.target.value })}
+              <Label>Descripción</Label>
+              <Textarea
+                value={form.description}
+                onChange={(e) => setForm({ ...form, description: e.target.value })}
+                placeholder="Especificaciones técnicas, marca, modelo..."
+                rows={3}
               />
             </div>
             <div>
-              <Label>Stock</Label>
+              <Label>Precio unitario</Label>
               <Input
                 type="number"
-                value={form.stock}
-                onChange={(e) => setForm({ ...form, stock: +e.target.value })}
+                step="0.01"
+                min="0"
+                value={form.unit_price}
+                onChange={(e) => setForm({ ...form, unit_price: parseFloat(e.target.value) || 0 })}
               />
             </div>
-            <div>
-              <Label>Precio</Label>
-              <Input
-                type="number"
-                value={form.precio}
-                onChange={(e) => setForm({ ...form, precio: +e.target.value })}
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="billable"
+                checked={form.billable}
+                onCheckedChange={(checked) => setForm({ ...form, billable: checked === true })}
               />
+              <Label htmlFor="billable" className="cursor-pointer">
+                Producto facturable (se puede vender en facturas)
+              </Label>
             </div>
           </div>
           <DialogFooter>
@@ -303,7 +335,7 @@ function InventarioPage() {
               Cancelar
             </Button>
             <Button onClick={submit} disabled={saving}>
-              {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               {editing ? "Guardar" : "Registrar"}
             </Button>
           </DialogFooter>

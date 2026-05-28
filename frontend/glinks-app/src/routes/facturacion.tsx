@@ -18,17 +18,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -41,12 +30,19 @@ import {
 } from "@/components/ui/table";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { fetchTodosClientes } from "@/services/api/clientes";
+import { fetchAllClients } from "@/services/api/clientes";
 import { productosApi } from "@/services/api/productos";
-import { facturasApi } from "@/services/api/facturas";
-import type { Factura, FacturaItem } from "@/models";
-import { Plus, Eye, Ban, Trash2, Loader2 } from "lucide-react";
+import {
+  facturasApi,
+  calculateInvoiceTotals,
+  type PhysicalProductItemInput,
+  type ServiceProductItemInput,
+} from "@/services/api/facturas";
+import type { Invoice, Product } from "@/models";
+import { Plus, Eye, Calendar, Package, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { DateRangePicker } from "@/components/ui/date_range_picker";
+import { addDays } from "date-fns";
 
 export const Route = createFileRoute("/facturacion")({
   component: () => (
@@ -56,121 +52,239 @@ export const Route = createFileRoute("/facturacion")({
   ),
 });
 
-const TAX = 0.13;
+type InvoiceTab = "physical" | "service";
+
+interface PhysicalCartItem {
+  productId: string;
+  amount: number;
+  product: Product;
+}
+
+interface ServiceCartItem {
+  productId: string;
+  startDate: Date;
+  endDate: Date;
+  product: Product;
+}
 
 function FacturacionPage() {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [view, setView] = useState<Factura | null>(null);
-  const [clienteId, setClienteId] = useState("");
-  const [items, setItems] = useState<FacturaItem[]>([]);
-  const [productoSel, setProductoSel] = useState("");
-  const [cantidad, setCantidad] = useState(1);
+  const [view, setView] = useState<Invoice | null>(null);
+  const [activeTab, setActiveTab] = useState<InvoiceTab>("physical");
 
-  const { data: clientes = [], isLoading: loadingClientes } = useQuery({
+  // Estado del formulario
+  const [clientId, setClientId] = useState("");
+  const [physicalItems, setPhysicalItems] = useState<PhysicalCartItem[]>([]);
+  const [serviceItems, setServiceItems] = useState<ServiceCartItem[]>([]);
+
+  // Selector de productos físicos
+  const [selectedPhysicalProductId, setSelectedPhysicalProductId] = useState("");
+  const [physicalAmount, setPhysicalAmount] = useState(1);
+
+  // Selector de servicios
+  const [selectedServiceProductId, setSelectedServiceProductId] = useState("");
+  const [serviceDateRange, setServiceDateRange] = useState<{
+    from: Date;
+    to: Date;
+  }>({
+    from: new Date(),
+    to: addDays(new Date(), 30),
+  });
+
+  const { data: clients = [], isLoading: loadingClients } = useQuery({
     queryKey: ["clientes", "todos"],
-    queryFn: fetchTodosClientes,
+    queryFn: fetchAllClients,
     staleTime: 60_000,
   });
 
-  const { data: prodPage, isLoading: loadingProductos } = useQuery({
+  const { data: productsPage, isLoading: loadingProducts } = useQuery({
     queryKey: ["productos", "list"],
     queryFn: () => productosApi.list(1, 200),
   });
 
-  const {
-    data: facturasPage,
-    isLoading: loadingFacturas,
-  } = useQuery({
+  const { data: invoicesPage, isLoading: loadingInvoices } = useQuery({
     queryKey: ["facturas", "list"],
     queryFn: () => facturasApi.list(1, 200),
   });
 
-  const productos = prodPage?.data ?? [];
-  const facturas = facturasPage?.data ?? [];
+  const products = productsPage?.data ?? [];
+  const invoices = invoicesPage?.data ?? [];
 
-  const selectedCliente = clientes.find((c) => c.id === clienteId);
+  const physicalProducts = products.filter((p) => p.billable === true);
+  const serviceProducts = products.filter((p) => p.billable === false);
 
-  const subtotal = items.reduce((s, i) => s + i.cantidad * i.precio, 0);
-  const impuestos = subtotal * TAX;
-  const total = subtotal + impuestos;
+  const selectedClient = clients.find((c) => c.id === clientId);
+  const isExonerated = selectedClient?.exonerated ?? false;
 
-  const reset = () => {
-    setClienteId("");
-    setItems([]);
-    setProductoSel("");
-    setCantidad(1);
+  const calculateSubtotal = () => {
+    let subtotal = 0;
+    for (const item of physicalItems) {
+      subtotal += item.product.unit_price * item.amount;
+    }
+    for (const item of serviceItems) {
+      subtotal += item.product.unit_price;
+    }
+    return subtotal;
   };
 
-  const addItem = () => {
-    const p = productos.find((x) => x.id === productoSel);
-    if (!p) return;
-    setItems([
-      ...items,
-      { productoId: p.id, nombre: p.nombre, cantidad, precio: p.precio },
+  const subtotal = calculateSubtotal();
+  const taxRate = isExonerated ? 0 : 0.13;
+  const taxes = subtotal * taxRate;
+  const total = subtotal + taxes;
+
+  const resetForm = () => {
+    setClientId("");
+    setPhysicalItems([]);
+    setServiceItems([]);
+    setSelectedPhysicalProductId("");
+    setPhysicalAmount(1);
+    setSelectedServiceProductId("");
+    setServiceDateRange({ from: new Date(), to: addDays(new Date(), 30) });
+    setActiveTab("physical");
+  };
+
+  const addPhysicalItem = () => {
+    if (!selectedPhysicalProductId) {
+      toast.error("Seleccione un producto");
+      return;
+    }
+    if (physicalAmount < 1) {
+      toast.error("La cantidad debe ser mayor a 0");
+      return;
+    }
+
+    const product = physicalProducts.find((p) => p.id === selectedPhysicalProductId);
+    if (!product) return;
+
+    const existing = physicalItems.find((i) => i.productId === selectedPhysicalProductId);
+    if (existing) {
+      setPhysicalItems(
+        physicalItems.map((i) =>
+          i.productId === selectedPhysicalProductId
+            ? { ...i, amount: i.amount + physicalAmount }
+            : i,
+        ),
+      );
+    } else {
+      setPhysicalItems([
+        ...physicalItems,
+        { productId: selectedPhysicalProductId, amount: physicalAmount, product },
+      ]);
+    }
+
+    setSelectedPhysicalProductId("");
+    setPhysicalAmount(1);
+  };
+
+  const removePhysicalItem = (index: number) => {
+    setPhysicalItems(physicalItems.filter((_, i) => i !== index));
+  };
+
+  const addServiceItem = () => {
+    if (!selectedServiceProductId) {
+      toast.error("Seleccione un servicio");
+      return;
+    }
+
+    const product = serviceProducts.find((p) => p.id === selectedServiceProductId);
+    if (!product) return;
+
+    // Verificar si ya existe el mismo servicio con fechas que se traslapan
+    const existing = serviceItems.find((i) => i.productId === selectedServiceProductId);
+    if (existing) {
+      toast.error("Este servicio ya está agregado");
+      return;
+    }
+
+    setServiceItems([
+      ...serviceItems,
+      {
+        productId: selectedServiceProductId,
+        startDate: serviceDateRange.from,
+        endDate: serviceDateRange.to,
+        product,
+      },
     ]);
-    setProductoSel("");
-    setCantidad(1);
+
+    setSelectedServiceProductId("");
+    setServiceDateRange({ from: new Date(), to: addDays(new Date(), 30) });
   };
 
-  const removeItem = (idx: number) => setItems(items.filter((_, i) => i !== idx));
+  const removeServiceItem = (index: number) => {
+    setServiceItems(serviceItems.filter((_, i) => i !== index));
+  };
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedCliente) throw new Error("Selecciona un cliente");
-      const input = { items, clienteFisicoId: undefined as string | undefined, clienteJuridicoId: undefined as string | undefined };
-      if (selectedCliente.tipo === "fisico") {
-        input.clienteFisicoId = clienteId;
-      } else {
-        input.clienteJuridicoId = clienteId;
+      if (!selectedClient) throw new Error("Seleccione un cliente");
+      if (physicalItems.length === 0 && serviceItems.length === 0) {
+        throw new Error("Agregue al menos un producto o servicio");
       }
-      return selectedCliente.tipo === "fisico"
-        ? facturasApi.createFisico(input)
-        : facturasApi.createJuridico(input);
+
+      const physicalProductItems: PhysicalProductItemInput[] = physicalItems.map(
+        (item) => ({
+          productId: item.productId,
+          amount: item.amount,
+        }),
+      );
+
+      const serviceProductItems: ServiceProductItemInput[] = serviceItems.map(
+        (item) => ({
+          productId: item.productId,
+          startDate: item.startDate,
+          endDate: item.endDate,
+        }),
+      );
+
+      if (selectedClient.tipo === "fisico") {
+        return facturasApi.createPhysical({
+          physicalClientId: clientId,
+          physicalProductItems,
+          serviceProductItems,
+        });
+      } else {
+        return facturasApi.createLegal({
+          legalClientId: clientId,
+          physicalProductItems,
+          serviceProductItems,
+        });
+      }
     },
-    onSuccess: (factura) => {
+    onSuccess: (invoice) => {
       queryClient.invalidateQueries({ queryKey: ["facturas"] });
-      toast.success(`Factura ${factura.numero} creada`);
+      toast.success(`Factura creada exitosamente`);
       setOpen(false);
-      reset();
+      resetForm();
     },
     onError: (err: Error) => toast.error(err.message),
   });
 
-  const anularMutation = useMutation({
-    mutationFn: (id: string) => facturasApi.anular(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["facturas"] });
-      toast.success("Factura anulada");
-    },
-    onError: (err: Error) => toast.error(err.message),
-  });
+  const getClientName = (invoice: Invoice) => {
+    if (invoice.physicalClient) {
+      return `${invoice.physicalClient.name} ${invoice.physicalClient.last_name_1}`;
+    }
+    if (invoice.legalClient) {
+      return invoice.legalClient.name;
+    }
+    return "—";
+  };
+
+  const getInvoiceTotal = (invoice: Invoice) => {
+    const { total } = calculateInvoiceTotals(invoice);
+    return total;
+  };
 
   const submit = () => {
-    if (!clienteId) {
-      toast.error("Selecciona un cliente");
+    if (!clientId) {
+      toast.error("Seleccione un cliente");
       return;
     }
-    if (items.length === 0) {
-      toast.error("Añade al menos un producto");
+    if (physicalItems.length === 0 && serviceItems.length === 0) {
+      toast.error("Agregue al menos un producto o servicio");
       return;
     }
     createMutation.mutate();
-  };
-
-  const displayNombre = (c: (typeof clientes)[number] | undefined) => {
-    if (!c) return "—";
-    return c.tipo === "fisico" ? `${c.nombre} ${c.apellido1}` : c.nombreEmpresa;
-  };
-
-  const clienteDeFactura = (f: Factura) => {
-    if (f.clienteFisico) return f.clienteFisico.nombre;
-    if (f.clienteJuridico) return f.clienteJuridico.nombreEmpresa;
-    // Fallback: buscar en la lista cargada
-    const id = f.clienteFisicoId ?? f.clienteJuridicoId;
-    if (!id) return "—";
-    const c = clientes.find((x) => x.id === id);
-    return displayNombre(c);
   };
 
   return (
@@ -178,22 +292,18 @@ function FacturacionPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Facturación</h1>
-          <p className="text-muted-foreground text-sm">Gestión de facturas</p>
+          <p className="text-muted-foreground text-sm">
+            Gestión de facturas de clientes
+          </p>
         </div>
-        <Button
-          onClick={() => {
-            reset();
-            setOpen(true);
-          }}
-          disabled={loadingClientes || loadingProductos}
-        >
+        <Button onClick={() => { resetForm(); setOpen(true); }}>
           <Plus className="h-4 w-4 mr-2" />
           Nueva factura
         </Button>
       </div>
 
       <Card className="p-4">
-        {loadingFacturas ? (
+        {loadingInvoices ? (
           <div className="space-y-2">
             {[1, 2, 3, 4].map((i) => (
               <Skeleton key={i} className="h-10 w-full" />
@@ -202,69 +312,36 @@ function FacturacionPage() {
         ) : (
           <Table>
             <TableHeader>
-              <TableRow className="text-muted-foreground">
-                <TableHead>Número</TableHead>
+              <TableRow>
+                <TableHead>Fecha</TableHead>
                 <TableHead>Cliente</TableHead>
-                <TableHead className="hidden md:table-cell">Fecha</TableHead>
+                <TableHead className="hidden md:table-cell">Tipo</TableHead>
                 <TableHead>Total</TableHead>
-                <TableHead>Estado</TableHead>
                 <TableHead className="text-right"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {facturas.map((f) => (
-                <TableRow key={f.id}>
-                  <TableCell className="font-medium">{f.numero}</TableCell>
-                  <TableCell>{clienteDeFactura(f)}</TableCell>
+              {invoices.map((inv) => (
+                <TableRow key={inv.id}>
+                  <TableCell>{new Date(inv.date).toLocaleDateString()}</TableCell>
+                  <TableCell className="font-medium">{getClientName(inv)}</TableCell>
                   <TableCell className="hidden md:table-cell">
-                    {new Date(f.fecha).toLocaleDateString()}
-                  </TableCell>
-                  <TableCell>₡{f.total.toFixed(2)}</TableCell>
-                  <TableCell>
-                    <Badge variant={f.estado === "activa" ? "default" : "destructive"}>
-                      {f.estado}
+                    <Badge variant={inv.physicalClient ? "default" : "secondary"}>
+                      {inv.physicalClient ? "Física" : "Jurídica"}
                     </Badge>
                   </TableCell>
+                  <TableCell>₡{getInvoiceTotal(inv).toFixed(2)}</TableCell>
                   <TableCell className="text-right">
-                    <div className="inline-flex gap-1">
-                      <Button variant="ghost" size="icon" onClick={() => setView(f)}>
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      {f.estado === "activa" && (
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="icon">
-                              <Ban className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>
-                                ¿Anular factura {f.numero}?
-                              </AlertDialogTitle>
-                              <AlertDialogDescription>
-                                Esta acción marcará la factura como anulada.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={() => anularMutation.mutate(f.id)}
-                              >
-                                Anular
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      )}
-                    </div>
+                    <Button variant="ghost" size="icon" onClick={() => setView(inv)}>
+                      <Eye className="h-4 w-4" />
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}
-              {facturas.length === 0 && (
+              {invoices.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                    Sin facturas
+                  <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                    Sin facturas registradas
                   </TableCell>
                 </TableRow>
               )}
@@ -274,122 +351,204 @@ function FacturacionPage() {
       </Card>
 
       {/* NEW INVOICE DIALOG */}
-      <Dialog open={open} onOpenChange={(v) => { if (!v) setOpen(false); }}>
-        <DialogContent className="max-w-2xl">
+      <Dialog open={open} onOpenChange={(v) => !v && setOpen(false)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Nueva factura</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
+            {/* Cliente */}
             <div>
               <Label>Cliente</Label>
-              <Select value={clienteId} onValueChange={setClienteId}>
+              <Select value={clientId} onValueChange={setClientId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Selecciona un cliente" />
+                  <SelectValue placeholder="Seleccione un cliente" />
                 </SelectTrigger>
                 <SelectContent>
-                  {clientes.map((c) => (
+                  {clients.map((c) => (
                     <SelectItem key={c.id} value={c.id}>
-                      {displayNombre(c)}
+                      {c.tipo === "fisico"
+                        ? `${c.name} ${c.last_name_1}`
+                        : c.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {selectedClient?.exonerated && (
+                <p className="text-xs text-green-600 mt-1">
+                  Cliente exonerado de impuestos
+                </p>
+              )}
             </div>
 
-            <div className="border rounded-md p-3 space-y-3">
-              <div className="grid grid-cols-12 gap-2 items-end">
-                <div className="col-span-7">
-                  <Label>Producto</Label>
-                  <Select value={productoSel} onValueChange={setProductoSel}>
+            {/* Tabs */}
+            <div className="flex gap-2 border-b">
+              <button
+                className={`px-4 py-2 text-sm font-medium transition-colors ${
+                  activeTab === "physical"
+                    ? "border-b-2 border-primary text-primary"
+                    : "text-muted-foreground"
+                }`}
+                onClick={() => setActiveTab("physical")}
+              >
+                <Package className="h-4 w-4 inline mr-2" />
+                Productos físicos
+              </button>
+              <button
+                className={`px-4 py-2 text-sm font-medium transition-colors ${
+                  activeTab === "service"
+                    ? "border-b-2 border-primary text-primary"
+                    : "text-muted-foreground"
+                }`}
+                onClick={() => setActiveTab("service")}
+              >
+                <Calendar className="h-4 w-4 inline mr-2" />
+                Servicios
+              </button>
+            </div>
+
+            {/* Productos Físicos */}
+            {activeTab === "physical" && (
+              <div className="border rounded-md p-3 space-y-3">
+                <div className="grid grid-cols-12 gap-2 items-end">
+                  <div className="col-span-6">
+                    <Label>Producto</Label>
+                    <Select
+                      value={selectedPhysicalProductId}
+                      onValueChange={setSelectedPhysicalProductId}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Seleccione" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {physicalProducts.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.name} - ₡{p.unit_price}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="col-span-4">
+                    <Label>Cantidad</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={physicalAmount}
+                      onChange={(e) => setPhysicalAmount(Math.max(1, parseInt(e.target.value) || 1))}
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <Button className="w-full" onClick={addPhysicalItem} type="button">
+                      Agregar
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  {physicalItems.map((item, idx) => (
+                    <div key={idx} className="flex justify-between items-center p-2 bg-muted rounded text-sm">
+                      <span>{item.product.name} x{item.amount}</span>
+                      <div className="flex items-center gap-2">
+                        <span>₡{(item.product.unit_price * item.amount).toFixed(2)}</span>
+                        <Button variant="ghost" size="icon" onClick={() => removePhysicalItem(idx)}>
+                          <Package className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  {physicalItems.length === 0 && (
+                    <p className="text-xs text-muted-foreground text-center py-2">
+                      No hay productos agregados
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Servicios */}
+            {activeTab === "service" && (
+              <div className="border rounded-md p-3 space-y-3">
+                <div className="space-y-2">
+                  <Label>Servicio</Label>
+                  <Select
+                    value={selectedServiceProductId}
+                    onValueChange={setSelectedServiceProductId}
+                  >
                     <SelectTrigger>
-                      <SelectValue placeholder="Selecciona producto" />
+                      <SelectValue placeholder="Seleccione" />
                     </SelectTrigger>
                     <SelectContent>
-                      {productos.map((p) => (
+                      {serviceProducts.map((p) => (
                         <SelectItem key={p.id} value={p.id}>
-                          {p.nombre} (₡{p.precio})
+                          {p.name} - ₡{p.unit_price}/mes
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="col-span-3">
-                  <Label>Cantidad</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    value={cantidad}
-                    onChange={(e) => setCantidad(+e.target.value || 1)}
+                <div>
+                  <Label>Período de facturación</Label>
+                  <DateRangePicker
+                    value={serviceDateRange}
+                    onChange={setServiceDateRange}
                   />
                 </div>
-                <div className="col-span-2">
-                  <Button
-                    className="w-full"
-                    onClick={addItem}
-                    disabled={!productoSel}
-                  >
-                    Añadir
-                  </Button>
+                <Button onClick={addServiceItem} disabled={!selectedServiceProductId} type="button">
+                  Agregar servicio
+                </Button>
+
+                <div className="space-y-1 mt-2">
+                  {serviceItems.map((item, idx) => (
+                    <div key={idx} className="flex justify-between items-center p-2 bg-muted rounded text-sm">
+                      <div>
+                        <div>{item.product.name}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {new Date(item.startDate).toLocaleDateString()} - {new Date(item.endDate).toLocaleDateString()}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span>₡{item.product.unit_price.toFixed(2)}</span>
+                        <Button variant="ghost" size="icon" onClick={() => removeServiceItem(idx)}>
+                          <Calendar className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  {serviceItems.length === 0 && (
+                    <p className="text-xs text-muted-foreground text-center py-2">
+                      No hay servicios agregados
+                    </p>
+                  )}
                 </div>
               </div>
+            )}
 
-              <div className="space-y-1">
-                {items.map((it, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between p-2 bg-muted rounded text-sm"
-                  >
-                    <span>
-                      {it.nombre} x{it.cantidad}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <span>₡{(it.cantidad * it.precio).toFixed(2)}</span>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeItem(idx)}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-                {items.length === 0 && (
-                  <p className="text-xs text-muted-foreground text-center py-2">
-                    Sin productos añadidos
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <div className="space-y-1 text-sm">
+            {/* Totales */}
+            <div className="space-y-1 text-sm border-t pt-3">
               <div className="flex justify-between">
                 <span>Subtotal</span>
                 <span>₡{subtotal.toFixed(2)}</span>
               </div>
-              <div className="flex justify-between text-muted-foreground">
-                <span>IVA (13%)</span>
-                <span>₡{impuestos.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between font-bold text-base border-t pt-1">
+              {!isExonerated && (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>IVA (13%)</span>
+                  <span>₡{taxes.toFixed(2)}</span>
+                </div>
+              )}
+              <div className="flex justify-between font-bold text-base pt-1">
                 <span>Total</span>
                 <span>₡{total.toFixed(2)}</span>
               </div>
             </div>
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setOpen(false)}
-              disabled={createMutation.isPending}
-            >
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={createMutation.isPending}>
               Cancelar
             </Button>
             <Button onClick={submit} disabled={createMutation.isPending}>
-              {createMutation.isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : null}
-              Confirmar factura
+              {createMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Crear factura
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -397,51 +556,88 @@ function FacturacionPage() {
 
       {/* VIEW INVOICE DIALOG */}
       <Dialog open={!!view} onOpenChange={(v) => !v && setView(null)}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{view?.numero}</DialogTitle>
+            <DialogTitle>Factura</DialogTitle>
           </DialogHeader>
           {view && (
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Cliente</span>
-                <span>{clienteDeFactura(view)}</span>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Fecha:</span>
+                  <div>{new Date(view.date).toLocaleString()}</div>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Cliente:</span>
+                  <div>{getClientName(view)}</div>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Fecha</span>
-                <span>{new Date(view.fecha).toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Estado</span>
-                <Badge
-                  variant={view.estado === "activa" ? "default" : "destructive"}
-                >
-                  {view.estado}
-                </Badge>
-              </div>
-              <div className="border-t pt-2 mt-2">
-                {view.items.map((i, idx) => (
-                  <div key={idx} className="flex justify-between py-1">
-                    <span>
-                      {i.nombre} x{i.cantidad}
-                    </span>
-                    <span>₡{(i.cantidad * i.precio).toFixed(2)}</span>
+
+              {/* Productos físicos */}
+              {view.physicalProductItems.length > 0 && (
+                <div>
+                  <h4 className="font-medium mb-2">Productos</h4>
+                  <div className="space-y-1">
+                    {view.physicalProductItems.map((item) => (
+                      <div key={item.id} className="flex justify-between text-sm">
+                        <span>
+                          {item.product?.name ?? item.product_id} x{item.amount}
+                        </span>
+                        <span>
+                          ₡{((item.product?.unit_price ?? 0) * item.amount).toFixed(2)}
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-              <div className="border-t pt-2 space-y-1">
-                <div className="flex justify-between">
-                  <span>Subtotal</span>
-                  <span>₡{view.subtotal.toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between text-muted-foreground">
-                  <span>IVA</span>
-                  <span>₡{view.impuestos.toFixed(2)}</span>
+              )}
+
+              {/* Servicios */}
+              {view.serviceProductItems.length > 0 && (
+                <div>
+                  <h4 className="font-medium mb-2">Servicios</h4>
+                  <div className="space-y-2">
+                    {view.serviceProductItems.map((item) => (
+                      <div key={item.id} className="text-sm">
+                        <div className="flex justify-between">
+                          <span>{item.product?.name ?? item.product_id}</span>
+                          <span>₡{(item.product?.unit_price ?? 0).toFixed(2)}</span>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          Período: {new Date(item.start_date).toLocaleDateString()} - {new Date(item.end_date).toLocaleDateString()}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div className="flex justify-between font-bold">
-                  <span>Total</span>
-                  <span>₡{view.total.toFixed(2)}</span>
-                </div>
+              )}
+
+              {/* Totales */}
+              <div className="border-t pt-2">
+                {(() => {
+                  const { subtotal, total } = calculateInvoiceTotals(view);
+                  const client = view.physicalClient ?? view.legalClient;
+                  const isExoneratedView = client?.exonerated ?? false;
+                  const taxesView = isExoneratedView ? 0 : subtotal * 0.13;
+                  return (
+                    <>
+                      <div className="flex justify-between text-sm">
+                        <span>Subtotal</span>
+                        <span>₡{subtotal.toFixed(2)}</span>
+                      </div>
+                      {!isExoneratedView && (
+                        <div className="flex justify-between text-sm text-muted-foreground">
+                          <span>IVA (13%)</span>
+                          <span>₡{taxesView.toFixed(2)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between font-bold mt-1">
+                        <span>Total</span>
+                        <span>₡{(subtotal + taxesView).toFixed(2)}</span>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             </div>
           )}
