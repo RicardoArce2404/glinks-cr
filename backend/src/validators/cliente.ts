@@ -1,12 +1,12 @@
 import { z } from "zod";
 
-const nationalIdRegex = /^[1-9][0-9]{6}$/;
+const nationalIdRegex = /^[1-9][0-9]{8}$/;
 const legalIdRegex = /^[1-9][0-9]{9}$/;
 const phoneRegex = /^[2-8][0-9]{7}$/;
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export const createPhysicalClientSchema = z.object({
-  nationalId: z.string().regex(nationalIdRegex, "Debe introducir la cédula en formato de 7 dígitos."),
+  nationalId: z.string().regex(nationalIdRegex, "Debe introducir la cédula en formato de 9 dígitos."),
   name: z.string().min(1).max(50),
   lastName1: z.string().min(1).max(50),
   lastName2: z.string().min(1).max(50),

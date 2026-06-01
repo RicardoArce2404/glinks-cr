@@ -5,14 +5,23 @@ import { useOnline } from "@/hooks/useOnline";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useState, type ReactNode } from "react";
+import type { Role } from "@/models";
 
-const items = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/clientes", label: "Clientes", icon: Users },
-  { to: "/mantenimiento", label: "Mantenimiento", icon: Wrench },
-  { to: "/inventario", label: "Inventario", icon: Package },
-  { to: "/facturacion", label: "Facturación", icon: Receipt },
-] as const;
+interface NavItem {
+  to: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  allowedRoles: Role[];
+}
+
+// Configuración de menús con roles permitidos
+const allItems: NavItem[] = [
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, allowedRoles: ["admin"] },
+  { to: "/clientes", label: "Clientes", icon: Users, allowedRoles: ["admin", "tecnico"] },
+  { to: "/mantenimiento", label: "Mantenimiento", icon: Wrench, allowedRoles: ["admin", "tecnico"] },
+  { to: "/inventario", label: "Inventario", icon: Package, allowedRoles: ["admin"] },
+  { to: "/facturacion", label: "Facturación", icon: Receipt, allowedRoles: ["admin"] },
+];
 
 export function AppLayout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
@@ -20,11 +29,21 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
 
+  // Filtrar items según el rol del usuario
+  const items = allItems.filter((item) => {
+    if (!user) return false;
+    return item.allowedRoles.includes(user.role);
+  });
+
+  // Obtener nombre para mostrar
+  const displayName = user?.name || user?.username || "Usuario";
+  const roleLabel = user?.role === "admin" ? "Administrador" : "Técnico";
+
   return (
     <div className="min-h-screen flex w-full bg-background text-foreground">
       <aside
-  className={`${open ? "block" : "hidden"} md:block fixed inset-y-0 left-0 z-30 w-64 bg-card border-r border-border flex flex-col h-screen`}
->
+        className={`${open ? "block" : "hidden"} md:block fixed inset-y-0 left-0 z-30 w-64 bg-card border-r border-border flex flex-col h-screen`}
+      >
         <div className="flex flex-col flex-1">
           <div className="p-5 border-b border-border">
             <h1 className="text-lg font-bold tracking-tight">GLinks CR</h1>
@@ -53,8 +72,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
         </div>
 
         <div className="p-4 border-t border-border bg-card">
-          <div className="text-sm font-medium">{user?.name}</div>
-          <div className="text-xs text-muted-foreground capitalize mb-3">{user?.role}</div>
+          <div className="text-sm font-medium truncate">{displayName}</div>
+          <div className="text-xs text-muted-foreground mb-3">{roleLabel}</div>
           <Button variant="outline" size="sm" className="w-full" onClick={logout}>
             <LogOut className="h-4 w-4 mr-2" /> Salir
           </Button>

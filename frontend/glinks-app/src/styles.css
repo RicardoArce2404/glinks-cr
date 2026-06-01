@@ -146,3 +146,27 @@
     color: var(--color-foreground);
   }
 }
+
+/* Asegurar que SweetAlert esté por encima de todo y sea clickeable */
+.swal2-container {
+  z-index: 99999 !important;
+  pointer-events: auto !important;
+}
+
+.swal2-popup {
+  pointer-events: auto !important;
+}
+
+/* Modal de Shadcn */
+[data-radix-dialog-portal] {
+  z-index: 50 !important;
+}
+
+/* Cuando SweetAlert está abierto */
+body.swal2-shown {
+  overflow: hidden !important;
+}
+
+body.swal2-shown [data-radix-dialog-portal] {
+  pointer-events: none !important;
+}

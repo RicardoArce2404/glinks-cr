@@ -7,7 +7,6 @@ import { Loader2 } from "lucide-react";
 export function Protected({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
 
-  // Mientras se valida el token al montar, mostrar un spinner
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">

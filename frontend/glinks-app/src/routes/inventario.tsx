@@ -33,9 +33,11 @@ import {
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { productosApi, type CreateProductInput } from "@/services/api/productos";
-import type { Product, ProductType } from "@/models";
-import { Plus, Pencil, Search, Loader2 } from "lucide-react";
-import { toast } from "sonner";
+import { facturasApi } from "@/services/api/facturas";
+import { checkProductInMaintenances, getMaintenancesByProduct } from "@/services/api/mantenimientos";
+import type { Product } from "@/models";
+import { Plus, Pencil, Trash2, Search, Loader2 } from "lucide-react";
+import { showSuccess, showError, showConfirmDelete, showCannotDelete, showToast, showLoading, closeLoading } from "@/lib/swal";
 
 export const Route = createFileRoute("/inventario")({
   component: () => (
@@ -53,7 +55,7 @@ const emptyForm: CreateProductInput = {
   billable: true,
 };
 
-const productTypes: ProductType[] = [
+const productTypes = [
   "Router",
   "PoE",
   "Tubo metálico",
@@ -70,19 +72,52 @@ function InventarioPage() {
   const [editing, setEditing] = useState<Product | null>(null);
   const [form, setForm] = useState<CreateProductInput>(emptyForm);
 
-  const { data: pageData, isLoading } = useQuery({
-    queryKey: ["productos", "list"],
-    queryFn: () => productosApi.list(1, 200),
+  // Cargar facturas para verificar si un producto está en facturas
+  const { data: invoicesPage } = useQuery({
+    queryKey: ["facturas", "list"],
+    queryFn: () => facturasApi.list(1, 1000),
+    staleTime: 60_000,
   });
+
+  const invoices = invoicesPage?.data ?? [];
+
+  const { data: pageData, isLoading } = useQuery({
+    queryKey: ["productos", "list", search, filterType],
+    queryFn: () => {
+      if (search) {
+        return productosApi.search(search, 1, 200);
+      }
+      return productosApi.list(1, 200);
+    },
+  });
+
+  // Función para verificar si un producto está en alguna factura
+  const isProductInInvoices = (productId: string): boolean => {
+    return invoices.some(inv => {
+      const inPhysical = inv.physicalProductItems?.some(item => item.product_id === productId);
+      const inService = inv.serviceProductItems?.some(item => item.product_id === productId);
+      return inPhysical || inService;
+    });
+  };
+
+  // Función para obtener el número de facturas donde aparece un producto
+  const getInvoiceCountForProduct = (productId: string): number => {
+    return invoices.filter(inv => {
+      const inPhysical = inv.physicalProductItems?.some(item => item.product_id === productId);
+      const inService = inv.serviceProductItems?.some(item => item.product_id === productId);
+      return inPhysical || inService;
+    }).length;
+  };
 
   const createMutation = useMutation({
     mutationFn: (data: CreateProductInput) => productosApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["productos"] });
-      toast.success("Producto registrado");
+      showSuccess("Producto registrado exitosamente", "Producto registrado");
       setOpen(false);
+      setForm(emptyForm);
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => showError(err.message, "Error al registrar"),
   });
 
   const updateMutation = useMutation({
@@ -90,24 +125,66 @@ function InventarioPage() {
       productosApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["productos"] });
-      toast.success("Producto actualizado");
+      showSuccess("Producto actualizado exitosamente", "Producto actualizado");
       setOpen(false);
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => showError(err.message, "Error al actualizar"),
   });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (product: Product) => {
+      // Verificar si el producto está en facturas
+      const inInvoices = isProductInInvoices(product.id);
+      if (inInvoices) {
+        throw new Error("PRODUCT_HAS_INVOICES");
+      }
+      
+      // Verificar si el producto está en mantenimientos
+      const inMaintenances = await checkProductInMaintenances(product.id);
+      if (inMaintenances) {
+        throw new Error("PRODUCT_HAS_MAINTENANCES");
+      }
+      
+      return productosApi.remove(product.id);
+    },
+    onSuccess: (_data, product) => {
+      queryClient.invalidateQueries({ queryKey: ["productos"] });
+      queryClient.invalidateQueries({ queryKey: ["facturas"] });
+      showSuccess(`El producto ${product.name} ha sido eliminado`, "Producto eliminado");
+    },
+    onError: (err: Error, product) => {
+      if (err.message === "PRODUCT_HAS_INVOICES") {
+        const count = getInvoiceCountForProduct(product.id);
+        showCannotDelete(
+          product.name,
+          `Este producto aparece en ${count} factura(s). No puede ser eliminado mientras existan facturas que lo contengan.`
+        );
+      } else if (err.message === "PRODUCT_HAS_MAINTENANCES") {
+        showCannotDelete(
+          product.name,
+          `Este producto ha sido utilizado en mantenimientos. No puede ser eliminado mientras existan registros de mantenimiento asociados.`
+        );
+      } else {
+        showError(err.message, "Error al eliminar");
+      }
+    },
+  });
+
+  const handleDelete = async (product: Product) => {
+    const confirmed = await showConfirmDelete(product.name, "producto");
+    if (confirmed) {
+      deleteMutation.mutate(product);
+    }
+  };
 
   const products = (pageData?.data ?? []).filter((p) => {
-    const term = search.toLowerCase();
-    const matchSearch =
-      !term ||
-      p.name.toLowerCase().includes(term) ||
-      p.description.toLowerCase().includes(term);
-    const matchType = filterType === "all" || p.type === filterType;
-    return matchSearch && matchType;
+    if (filterType === "all") return true;
+    return p.type === filterType;
   });
 
-  const totalProducts = pageData?.data.length ?? 0;
-  const billableCount = pageData?.data.filter((p) => p.billable).length ?? 0;
+  const totalProducts = pageData?.total ?? 0;
+  const allProducts = pageData?.data ?? [];
+  const billableCount = allProducts.filter((p) => p.billable === true).length;
   const nonBillableCount = totalProducts - billableCount;
 
   const openCreate = () => {
@@ -121,7 +198,7 @@ function InventarioPage() {
     setForm({
       name: p.name,
       type: p.type,
-      description: p.description,
+      description: p.description || "",
       unit_price: p.unit_price,
       billable: p.billable,
     });
@@ -130,11 +207,11 @@ function InventarioPage() {
 
   const submit = () => {
     if (!form.name.trim()) {
-      toast.error("Nombre requerido");
+      showToast("El nombre del producto es requerido", "error");
       return;
     }
     if (form.unit_price < 0) {
-      toast.error("El precio no puede ser negativo");
+      showToast("El precio no puede ser negativo", "error");
       return;
     }
     if (editing) {
@@ -225,36 +302,52 @@ function InventarioPage() {
                 <TableHead className="hidden md:table-cell">Descripción</TableHead>
                 <TableHead>Precio</TableHead>
                 <TableHead>Facturable</TableHead>
-                <TableHead className="text-right"></TableHead>
+                <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {products.map((p) => (
-                <TableRow key={p.id}>
-                  <TableCell className="font-medium">{p.name}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline">{p.type}</Badge>
-                  </TableCell>
-                  <TableCell className="hidden md:table-cell text-muted-foreground max-w-[200px] truncate">
-                    {p.description || "—"}
-                  </TableCell>
-                  <TableCell>₡{p.unit_price.toFixed(2)}</TableCell>
-                  <TableCell>
-                    {p.billable ? (
-                      <Badge variant="default" className="bg-green-600">
-                        Sí
-                      </Badge>
-                    ) : (
-                      <Badge variant="secondary">No</Badge>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button variant="ghost" size="icon" onClick={() => openEdit(p)}>
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
+              {products.map((p) => {
+                const hasInvoiceRelation = isProductInInvoices(p.id);
+                const invoiceCount = getInvoiceCountForProduct(p.id);
+                
+                return (
+                  <TableRow key={p.id}>
+                    <TableCell className="font-medium">{p.name}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{p.type}</Badge>
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell text-muted-foreground max-w-[200px] truncate">
+                      {p.description || "—"}
+                    </TableCell>
+                    <TableCell>₡{p.unit_price.toFixed(2)}</TableCell>
+                    <TableCell>
+                      {p.billable ? (
+                        <Badge variant="default" className="bg-green-600">
+                          Sí
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary">No</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="inline-flex gap-1">
+                        <Button variant="ghost" size="icon" onClick={() => openEdit(p)} title="Editar producto">
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={() => handleDelete(p)}
+                          disabled={hasInvoiceRelation}
+                          title={hasInvoiceRelation ? `No se puede eliminar: aparece en ${invoiceCount} factura(s)` : "Eliminar producto"}
+                        >
+                          <Trash2 className={`h-4 w-4 ${hasInvoiceRelation ? "text-gray-400" : "text-destructive"}`} />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
               {products.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
@@ -275,7 +368,7 @@ function InventarioPage() {
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <Label>Nombre</Label>
+              <Label>Nombre *</Label>
               <Input
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -283,7 +376,7 @@ function InventarioPage() {
               />
             </div>
             <div>
-              <Label>Tipo</Label>
+              <Label>Tipo *</Label>
               <Select
                 value={form.type}
                 onValueChange={(v) => setForm({ ...form, type: v })}
@@ -310,7 +403,7 @@ function InventarioPage() {
               />
             </div>
             <div>
-              <Label>Precio unitario</Label>
+              <Label>Precio unitario *</Label>
               <Input
                 type="number"
                 step="0.01"

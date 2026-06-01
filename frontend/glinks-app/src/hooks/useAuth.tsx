@@ -5,9 +5,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { User } from "@/models";
-import { storage } from "@/services/storage";
-import { setToken, getToken } from "@/services/httpClient";
+import type { User, Role } from "@/models";
+import { setToken } from "@/services/httpClient";
 
 interface AuthCtx {
   user: User | null;
@@ -21,25 +20,23 @@ interface AuthCtx {
 }
 
 const Ctx = createContext<AuthCtx | null>(null);
-const KEY_USER = "erp_session";
+const KEY_USER = "erp_user";
 const KEY_TOKEN = "erp_token";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Restaurar sesión al montar
   useEffect(() => {
-    const savedToken =
-      localStorage.getItem(KEY_TOKEN) ?? sessionStorage.getItem(KEY_TOKEN);
-    const savedUser = storage.get<User | null>(KEY_USER, null);
+    const savedToken = localStorage.getItem(KEY_TOKEN) ?? sessionStorage.getItem(KEY_TOKEN);
+    const savedUserStr = localStorage.getItem(KEY_USER) ?? sessionStorage.getItem(KEY_USER);
+    const savedUser = savedUserStr ? JSON.parse(savedUserStr) : null;
 
     if (!savedToken || !savedUser) {
       setLoading(false);
       return;
     }
 
-    // Validar que el token sigue vigente
     setToken(savedToken);
 
     fetch(
@@ -58,12 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (json.success) {
           setUser(savedUser);
         } else {
-          // Limpiar sesión inválida
-          setToken(null);
-          localStorage.removeItem(KEY_TOKEN);
-          localStorage.removeItem(KEY_USER);
-          sessionStorage.removeItem(KEY_TOKEN);
-          sessionStorage.removeItem(KEY_USER);
+          throw new Error("Token inválido");
         }
       })
       .catch(() => {
@@ -98,35 +90,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { ok: false, error: json.error ?? "Credenciales inválidas" };
       }
 
-      const { token, user: apiUser } = json.data as {
-        token: string;
-        user: User;
+      const { token, user: apiUser } = json.data;
+
+      // Asegurar que el usuario tenga un nombre para mostrar
+      const userWithName = {
+        ...apiUser,
+        name: apiUser.name || apiUser.username,
       };
 
-      // Guardar token
       setToken(token);
+
       if (remember) {
         localStorage.setItem(KEY_TOKEN, token);
+        localStorage.setItem(KEY_USER, JSON.stringify(userWithName));
       } else {
         sessionStorage.setItem(KEY_TOKEN, token);
+        sessionStorage.setItem(KEY_USER, JSON.stringify(userWithName));
       }
 
-      // Guardar usuario
-      setUser(apiUser);
-      if (remember) {
-        storage.set(KEY_USER, apiUser);
-      } else {
-        sessionStorage.setItem(KEY_USER, JSON.stringify(apiUser));
-      }
-
+      setUser(userWithName);
       return { ok: true };
     } catch (err) {
       return {
         ok: false,
-        error:
-          err instanceof Error
-            ? err.message
-            : "Error de conexión con el servidor",
+        error: err instanceof Error ? err.message : "Error de conexión",
       };
     }
   };

@@ -6,6 +6,7 @@ export interface User {
   id: string;
   username: string;
   role: Role;
+  name?: string; 
   createdAt: string;
 }
 
@@ -42,25 +43,7 @@ export type UnifiedClient =
   | (PhysicalClient & { tipo: "fisico" })
   | (LegalClient & { tipo: "juridico" });
 
-// ─── Productos / Inventario ────────────────────────
 
-export type ProductType = 
-  | "Router" 
-  | "PoE" 
-  | "Tubo metálico" 
-  | "Antena AP" 
-  | "Cable" 
-  | "Otro";
-
-export interface Product {
-  id: string;
-  name: string;
-  type: string;
-  description: string;
-  unit_price: number;
-  billable: boolean;
-  createdAt: string;
-}
 
 // ─── Mantenimientos ────────────────────────────────
 
@@ -118,11 +101,29 @@ export interface Invoice {
   physicalProductItems: PhysicalProductItem[];
 }
 
-// ─── API paginación ────────────────────────────────
 
 export interface PaginatedResponse<T> {
   data: T[];
   total: number;
   page: number;
   limit: number;
+}
+
+// Asegurar que ProductType esté definido
+export type ProductType = 
+  | "Router"
+  | "PoE"
+  | "Tubo metálico"
+  | "Antena AP"
+  | "Cable"
+  | "Otro";
+
+export interface Product {
+  id: string;
+  name: string;
+  type: string;
+  description: string;
+  unit_price: number;
+  billable: boolean;
+  createdAt: string;
 }

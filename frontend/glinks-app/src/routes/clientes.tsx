@@ -11,17 +11,6 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -42,9 +31,11 @@ import {
   type CreatePhysicalClientInput,
   type CreateLegalClientInput,
 } from "@/services/api/clientes";
+import { facturasApi } from "@/services/api/facturas";
 import type { UnifiedClient } from "@/models";
 import { Plus, Pencil, Trash2, Eye, Search, Loader2 } from "lucide-react";
-import { toast } from "sonner";
+import { showSuccess, showError, showConfirmDelete, showCannotDelete, showToast } from "@/lib/swal";
+import { fetchAllMaintenances } from "@/services/api/mantenimientos";
 
 export const Route = createFileRoute("/clientes")({
   component: () => (
@@ -124,11 +115,103 @@ function ClientesPage() {
   const [form, setForm] = useState<FormState>(emptyPhysical);
   const [view, setView] = useState<UnifiedClient | null>(null);
 
+
+  // Dentro del componente ClientesPage, agregar:
+  // Cargar mantenimientos para verificar si un cliente tiene mantenimientos asociados
+  const { data: maintenancesData } = useQuery({
+    queryKey: ["mantenimientos", "todos"],
+    queryFn: () => fetchAllMaintenances(1, 1000),
+    staleTime: 60_000,
+  });
+
+  const maintenances = maintenancesData?.data ?? [];
+
+  // Función para verificar si un cliente tiene mantenimientos asociados
+  const hasMaintenances = (client: UnifiedClient): boolean => {
+    return maintenances.some((m) => {
+      if (client.tipo === "fisico") {
+        return m.physical_client_id === client.id;
+      } else {
+        return m.legal_client_id === client.id;
+      }
+    });
+  };
+
+  // Función para obtener el número de mantenimientos de un cliente
+  const getMaintenanceCount = (client: UnifiedClient): number => {
+    return maintenances.filter((m) => {
+      if (client.tipo === "fisico") {
+        return m.physical_client_id === client.id;
+      } else {
+        return m.legal_client_id === client.id;
+      }
+    }).length;
+  };
+
+  // Modificar la función hasInvoices para que sea hasRelatedRecords
+  const hasRelatedRecords = (client: UnifiedClient): boolean => {
+    return hasInvoices(client) || hasMaintenances(client);
+  };
+
+  // Modificar el handleDelete para verificar ambas
+  const handleDelete = async (client: UnifiedClient) => {
+    const invoiceCount = getInvoiceCount(client);
+    const maintenanceCount = getMaintenanceCount(client);
+    
+    if (invoiceCount > 0 || maintenanceCount > 0) {
+      let reasons = [];
+      if (invoiceCount > 0) reasons.push(`${invoiceCount} factura(s)`);
+      if (maintenanceCount > 0) reasons.push(`${maintenanceCount} mantenimiento(s)`);
+      
+      showCannotDelete(
+        getClientDisplayName(client),
+        `Este cliente tiene ${reasons.join(" y ")} asociada(s). No puede ser eliminado mientras existan registros vinculados.`
+      );
+      return;
+    }
+    
+    const confirmed = await showConfirmDelete(getClientDisplayName(client), "cliente");
+    if (confirmed) {
+      deleteMutation.mutate(client);
+    }
+  };
+
   const { data: clients = [], isLoading } = useQuery({
     queryKey: ["clientes", "todos"],
     queryFn: fetchAllClients,
     staleTime: 30_000,
   });
+
+  // Cargar facturas para verificar si un cliente tiene facturas asociadas
+  const { data: invoicesPage } = useQuery({
+    queryKey: ["facturas", "list"],
+    queryFn: () => facturasApi.list(1, 1000),
+    staleTime: 60_000,
+  });
+
+  const invoices = invoicesPage?.data ?? [];
+
+  // Función para verificar si un cliente tiene facturas asociadas
+  const hasInvoices = (client: UnifiedClient): boolean => {
+    return invoices.some((inv) => {
+      if (client.tipo === "fisico") {
+        return inv.physical_client_id === client.id;
+      } else {
+        return inv.legal_client_id === client.id;
+      }
+    });
+  };
+
+  // Función para obtener el número de facturas de un cliente
+  const getInvoiceCount = (client: UnifiedClient): number => {
+    return invoices.filter((inv) => {
+      if (client.tipo === "fisico") {
+        return inv.physical_client_id === client.id;
+      } else {
+        return inv.legal_client_id === client.id;
+      }
+    }).length;
+  };
 
   const filtered = (clients ?? []).filter((c) => {
     if (!search) return true;
@@ -142,88 +225,155 @@ function ClientesPage() {
   const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
 
   const createMutation = useMutation({
-    mutationFn: async (data: FormState) => {
-      if (data.tipoCliente === "fisico") {
-        const input: CreatePhysicalClientInput = {
-          nationalId: data.national_id,
-          name: data.name,
-          lastName1: data.last_name_1,
-          lastName2: data.last_name_2,
-          primaryPhone: data.primary_phone,
-          secondaryPhone: data.secondary_phone || null,
-          email: data.email || null,
-          address: data.address,
-          exonerated: data.exonerated,
-        };
-        return physicalClientsApi.create(input);
-      } else {
-        const input: CreateLegalClientInput = {
-          legalId: data.legal_id,
-          name: data.name,
-          primaryPhone: data.primary_phone,
-          secondaryPhone: data.secondary_phone || null,
-          email: data.email || null,
-          address: data.address,
-          exonerated: data.exonerated,
-        };
-        return legalClientsApi.create(input);
+  mutationFn: async (data: FormState) => {
+    if (data.tipoCliente === "fisico") {
+      if (!/^[1-9][0-9]{8}$/.test(data.national_id)) {
+        throw new Error("La cédula debe tener 9 dígitos y no comenzar con 0");
       }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["clientes"] });
-      toast.success("Cliente registrado");
-      setOpen(false);
-    },
-    onError: (err: Error) => toast.error(err.message),
-  });
+      if (!/^[2-8][0-9]{7}$/.test(data.primary_phone)) {
+        throw new Error("El teléfono debe tener 8 dígitos y comenzar con 2,3,4,5,6,7 u 8");
+      }
+      if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
+        throw new Error("El correo electrónico no es válido");
+      }
+      
+      const input: CreatePhysicalClientInput = {
+        nationalId: data.national_id,
+        name: data.name,
+        lastName1: data.last_name_1,
+        lastName2: data.last_name_2,
+        primaryPhone: data.primary_phone,
+        // ✅ Si secondary_phone es string vacío, enviar null
+        secondaryPhone: data.secondary_phone && data.secondary_phone.trim() !== "" ? data.secondary_phone : null,
+        email: data.email && data.email.trim() !== "" ? data.email : null,
+        address: data.address,
+        exonerated: data.exonerated,
+      };
+      return physicalClientsApi.create(input);
+    } else {
+      if (!/^[1-9][0-9]{9}$/.test(data.legal_id)) {
+        throw new Error("La cédula jurídica debe tener 10 dígitos y no comenzar con 0");
+      }
+      if (!/^[2-8][0-9]{7}$/.test(data.primary_phone)) {
+        throw new Error("El teléfono debe tener 8 dígitos y comenzar con 2,3,4,5,6,7 u 8");
+      }
+      if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
+        throw new Error("El correo electrónico no es válido");
+      }
+      
+      const input: CreateLegalClientInput = {
+        legalId: data.legal_id,
+        name: data.name,
+        primaryPhone: data.primary_phone,
+        secondaryPhone: data.secondary_phone && data.secondary_phone.trim() !== "" ? data.secondary_phone : null,
+        email: data.email && data.email.trim() !== "" ? data.email : null,
+        address: data.address,
+        exonerated: data.exonerated,
+      };
+      return legalClientsApi.create(input);
+    }
+  },
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ["clientes"] });
+    setOpen(false);
+    setTimeout(() => {
+      setForm(emptyPhysical);
+      showSuccess("El cliente ha sido registrado exitosamente", "Cliente registrado");
+    }, 300);
+  },
+  onError: (err: Error) => {
+    setOpen(false);
+    setTimeout(() => {
+      showError(err.message, "Error al registrar");
+    }, 300);
+  },
+});
 
-  const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: FormState }) => {
-      if (data.tipoCliente === "fisico") {
-        const input: Partial<CreatePhysicalClientInput> = {
-          nationalId: data.national_id,
-          name: data.name,
-          lastName1: data.last_name_1,
-          lastName2: data.last_name_2,
-          primaryPhone: data.primary_phone,
-          secondaryPhone: data.secondary_phone || null,
-          email: data.email || null,
-          address: data.address,
-          exonerated: data.exonerated,
-        };
-        return physicalClientsApi.update(id, input);
-      } else {
-        const input: Partial<CreateLegalClientInput> = {
-          legalId: data.legal_id,
-          name: data.name,
-          primaryPhone: data.primary_phone,
-          secondaryPhone: data.secondary_phone || null,
-          email: data.email || null,
-          address: data.address,
-          exonerated: data.exonerated,
-        };
-        return legalClientsApi.update(id, input);
+const updateMutation = useMutation({
+  mutationFn: async ({ id, data }: { id: string; data: FormState }) => {
+    if (data.tipoCliente === "fisico") {
+      if (data.national_id && !/^[1-9][0-9]{8}$/.test(data.national_id)) {
+        throw new Error("La cédula debe tener 9 dígitos y no comenzar con 0");
       }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["clientes"] });
-      toast.success("Cliente actualizado");
-      setOpen(false);
-    },
-    onError: (err: Error) => toast.error(err.message),
-  });
+      if (data.primary_phone && !/^[2-8][0-9]{7}$/.test(data.primary_phone)) {
+        throw new Error("El teléfono debe tener 8 dígitos y comenzar con 2,3,4,5,6,7 u 8");
+      }
+      if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
+        throw new Error("El correo electrónico no es válido");
+      }
+      
+      const input: Partial<CreatePhysicalClientInput> = {
+        nationalId: data.national_id,
+        name: data.name,
+        lastName1: data.last_name_1,
+        lastName2: data.last_name_2,
+        primaryPhone: data.primary_phone,
+        secondaryPhone: data.secondary_phone && data.secondary_phone.trim() !== "" ? data.secondary_phone : null,
+        email: data.email && data.email.trim() !== "" ? data.email : null,
+        address: data.address,
+        exonerated: data.exonerated,
+      };
+      return physicalClientsApi.update(id, input);
+    } else {
+      if (data.legal_id && !/^[1-9][0-9]{9}$/.test(data.legal_id)) {
+        throw new Error("La cédula jurídica debe tener 10 dígitos y no comenzar con 0");
+      }
+      if (data.primary_phone && !/^[2-8][0-9]{7}$/.test(data.primary_phone)) {
+        throw new Error("El teléfono debe tener 8 dígitos y comenzar con 2,3,4,5,6,7 u 8");
+      }
+      if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
+        throw new Error("El correo electrónico no es válido");
+      }
+      
+      const input: Partial<CreateLegalClientInput> = {
+        legalId: data.legal_id,
+        name: data.name,
+        primaryPhone: data.primary_phone,
+        secondaryPhone: data.secondary_phone && data.secondary_phone.trim() !== "" ? data.secondary_phone : null,
+        email: data.email && data.email.trim() !== "" ? data.email : null,
+        address: data.address,
+        exonerated: data.exonerated,
+      };
+      return legalClientsApi.update(id, input);
+    }
+  },
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ["clientes"] });
+    setOpen(false);
+    setTimeout(() => {
+      showSuccess("Los datos del cliente han sido actualizados", "Cliente actualizado");
+    }, 300);
+  },
+  onError: (err: Error) => {
+    setOpen(false);
+    setTimeout(() => {
+      showError(err.message, "Error al actualizar");
+    }, 300);
+  },
+});
 
   const deleteMutation = useMutation({
     mutationFn: (c: UnifiedClient) => {
       if (c.tipo === "fisico") return physicalClientsApi.remove(c.id);
       return legalClientsApi.remove(c.id);
     },
-    onSuccess: () => {
+    onSuccess: (_data, client) => {
       queryClient.invalidateQueries({ queryKey: ["clientes"] });
-      toast.success("Cliente eliminado");
+      queryClient.invalidateQueries({ queryKey: ["facturas"] });
+      showSuccess(`El cliente ${getClientDisplayName(client)} ha sido eliminado`, "Cliente eliminado");
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error, client) => {
+      if (err.message.includes("foreign key") || err.message.includes("constraint")) {
+        showCannotDelete(
+          getClientDisplayName(client),
+          `Este cliente tiene ${getInvoiceCount(client)} factura(s) asociada(s). No puede ser eliminado mientras existan facturas vinculadas.`
+        );
+      } else {
+        showError(err.message, "Error al eliminar");
+      }
+    },
   });
+
 
   const openCreate = () => {
     setEditing(null);
@@ -265,24 +415,44 @@ function ClientesPage() {
     setForm(t === "fisico" ? emptyPhysical : emptyLegal);
   };
 
-  const submit = () => {
+  const submit = async () => {
     if (form.tipoCliente === "fisico") {
       if (!form.name || !form.national_id) {
-        toast.error("Nombre y cédula requeridos");
+        showToast("Debe completar el nombre y la cédula", "error");
+        return;
+      }
+      if (!/^[1-9][0-9]{8}$/.test(form.national_id)) {
+        showToast("La cédula debe tener 9 dígitos y no comenzar con 0", "error");
         return;
       }
     } else {
       if (!form.name || !form.legal_id) {
-        toast.error("Nombre de empresa y cédula jurídica requeridos");
+        showToast("Debe completar el nombre de empresa y la cédula jurídica", "error");
+        return;
+      }
+      if (!/^[1-9][0-9]{9}$/.test(form.legal_id)) {
+        showToast("La cédula jurídica debe tener 10 dígitos y no comenzar con 0", "error");
         return;
       }
     }
+    
     if (!form.primary_phone) {
-      toast.error("Teléfono primario requerido");
+      showToast("El teléfono primario es requerido", "error");
       return;
     }
+    
+    if (!/^[2-8][0-9]{7}$/.test(form.primary_phone)) {
+      showToast("El teléfono debe tener 8 dígitos y comenzar con 2-8", "error");
+      return;
+    }
+    
+    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+      showToast("Ingrese un correo electrónico válido", "error");
+      return;
+    }
+    
     if (!form.address) {
-      toast.error("Dirección requerida");
+      showToast("La dirección es requerida", "error");
       return;
     }
 
@@ -347,57 +517,50 @@ function ClientesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {paged.map((c) => (
-                  <TableRow key={c.id}>
-                    <TableCell className="font-medium">{getClientDisplayName(c)}</TableCell>
-                    <TableCell className="font-mono text-xs">{getClientDisplayDoc(c)}</TableCell>
-                    <TableCell className="hidden md:table-cell">
-                      <Badge variant={c.tipo === "fisico" ? "default" : "secondary"}>
-                        {c.tipo === "fisico" ? "Física" : "Jurídica"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="hidden md:table-cell">{c.primary_phone}</TableCell>
-                    <TableCell className="hidden md:table-cell truncate max-w-[180px]">{c.address}</TableCell>
-                    <TableCell>
-                      {c.exonerated ? (
-                        <Badge variant="outline" className="text-green-600">Sí</Badge>
-                      ) : (
-                        <Badge variant="outline">No</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="inline-flex gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => setView(c)}>
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => openEdit(c)}>
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="icon">
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>¿Eliminar cliente?</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                Esta acción no se puede deshacer.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                              <AlertDialogAction onClick={() => deleteMutation.mutate(c)}>
-                                Eliminar
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {paged.map((c) => {
+                  const hasInvoiceRelation = hasInvoices(c);
+                  const invoiceCount = getInvoiceCount(c);
+                  
+                  return (
+                    <TableRow key={c.id}>
+                      <TableCell className="font-medium">{getClientDisplayName(c)}</TableCell>
+                      <TableCell className="font-mono text-xs">{getClientDisplayDoc(c)}</TableCell>
+                      <TableCell className="hidden md:table-cell">
+                        <Badge variant={c.tipo === "fisico" ? "default" : "secondary"}>
+                          {c.tipo === "fisico" ? "Física" : "Jurídica"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="hidden md:table-cell">{c.primary_phone}</TableCell>
+                      <TableCell className="hidden md:table-cell truncate max-w-[180px]">{c.address}</TableCell>
+                      <TableCell>
+                        {c.exonerated ? (
+                          <Badge variant="outline" className="text-green-600">Sí</Badge>
+                        ) : (
+                          <Badge variant="outline">No</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="inline-flex gap-1">
+                          <Button variant="ghost" size="icon" onClick={() => setView(c)} title="Ver detalles">
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => openEdit(c)} title="Editar cliente">
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={() => handleDelete(c)}
+                            disabled={hasInvoiceRelation}
+                            title={hasInvoiceRelation ? `No se puede eliminar: tiene ${invoiceCount} factura(s) asociada(s)` : "Eliminar cliente"}
+                          >
+                            <Trash2 className={`h-4 w-4 ${hasInvoiceRelation ? "text-gray-400" : "text-destructive"}`} />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
                 {paged.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
@@ -447,8 +610,14 @@ function ClientesPage() {
             {form.tipoCliente === "fisico" ? (
               <>
                 <div>
-                  <Label>Cédula</Label>
-                  <Input value={form.national_id} onChange={(e) => setForm({ ...form, national_id: e.target.value })} />
+                  <Label>Cédula (9 dígitos)</Label>
+                  <Input 
+                    value={form.national_id} 
+                    onChange={(e) => setForm({ ...form, national_id: e.target.value })} 
+                    placeholder="Ej: 123456789"
+                    maxLength={9}
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">9 dígitos, no comenzar con 0</p>
                 </div>
                 <div>
                   <Label>Nombre</Label>
@@ -466,8 +635,14 @@ function ClientesPage() {
             ) : (
               <>
                 <div>
-                  <Label>Cédula jurídica</Label>
-                  <Input value={form.legal_id} onChange={(e) => setForm({ ...form, legal_id: e.target.value })} />
+                  <Label>Cédula jurídica (10 dígitos)</Label>
+                  <Input 
+                    value={form.legal_id} 
+                    onChange={(e) => setForm({ ...form, legal_id: e.target.value })} 
+                    placeholder="Ej: 3101234567"
+                    maxLength={10}
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">10 dígitos, no comenzar con 0</p>
                 </div>
                 <div className="sm:col-span-2">
                   <Label>Nombre de empresa</Label>
@@ -477,16 +652,32 @@ function ClientesPage() {
             )}
 
             <div>
-              <Label>Teléfono principal</Label>
-              <Input value={form.primary_phone} onChange={(e) => setFormField("primary_phone", e.target.value)} />
+              <Label>Teléfono principal (8 dígitos)</Label>
+              <Input 
+                value={form.primary_phone} 
+                onChange={(e) => setFormField("primary_phone", e.target.value)} 
+                placeholder="Ej: 88888888"
+                maxLength={8}
+              />
+              <p className="text-xs text-muted-foreground mt-1">8 dígitos, comenzar con 2-8</p>
             </div>
             <div>
               <Label>Teléfono secundario</Label>
-              <Input value={form.secondary_phone} onChange={(e) => setFormField("secondary_phone", e.target.value)} />
+              <Input 
+                value={form.secondary_phone} 
+                onChange={(e) => setFormField("secondary_phone", e.target.value)} 
+                placeholder="Opcional"
+                maxLength={8}
+              />
             </div>
             <div className="sm:col-span-2">
               <Label>Correo electrónico</Label>
-              <Input type="email" value={form.email} onChange={(e) => setFormField("email", e.target.value)} />
+              <Input 
+                type="email" 
+                value={form.email} 
+                onChange={(e) => setFormField("email", e.target.value)} 
+                placeholder="cliente@ejemplo.com"
+              />
             </div>
             <div className="sm:col-span-2">
               <Label>Dirección</Label>
@@ -558,6 +749,12 @@ function ClientesPage() {
                 <span className="text-muted-foreground">Registrado</span>
                 <span>{new Date(view.createdAt).toLocaleDateString()}</span>
               </div>
+              {hasInvoices(view) && (
+                <div className="flex justify-between gap-4 mt-2 pt-2 border-t">
+                  <span className="text-muted-foreground">Facturas asociadas</span>
+                  <span className="text-amber-600 font-medium">{getInvoiceCount(view)} factura(s)</span>
+                </div>
+              )}
             </div>
           )}
         </DialogContent>
