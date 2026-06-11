@@ -1,4 +1,4 @@
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useLocation } from "react-router-dom";
 import { LayoutDashboard, Users, Wrench, Package, Receipt, LogOut, Wifi, WifiOff, Cloud, CloudOff, RefreshCw } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useSync } from "@/hooks/useSync";
@@ -25,7 +25,7 @@ const allItems: NavItem[] = [
 export function AppLayout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const { isOnline, pendingCount, isSyncing, forceSync } = useSync();
-  const path = useRouterState({ select: (s) => s.location.pathname });
+  const location = useLocation();
   const [open, setOpen] = useState(false);
 
   const items = allItems.filter((item) => {
@@ -49,7 +49,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
           <nav className="p-3 space-y-1 overflow-y-auto">
             {items.map((it) => {
-              const active = path.startsWith(it.to);
+              const active = location.pathname.startsWith(it.to);
               const Icon = it.icon;
               return (
                 <Link
@@ -72,7 +72,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
           <div className="text-sm font-medium truncate">{displayName}</div>
           <div className="text-xs text-muted-foreground mb-3">{roleLabel}</div>
           
-          {/* Estado de sincronización */}
           <div className="mb-3 p-2 rounded-md bg-muted/50">
             <div className="flex items-center justify-between text-xs">
               <div className="flex items-center gap-1">
@@ -135,7 +134,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
           </Button>
           <div className="flex-1" />
           
-          {/* Indicador de estado en móvil */}
           <div className="flex items-center gap-2">
             {!isOnline && (
               <Badge variant="destructive" className="gap-1 md:hidden">

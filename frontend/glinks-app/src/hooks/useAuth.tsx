@@ -5,7 +5,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { User, Role } from "@/models";
+import type { User } from "@/models";
 import { setToken } from "@/services/httpClient";
 
 interface AuthCtx {
@@ -23,14 +23,35 @@ const Ctx = createContext<AuthCtx | null>(null);
 const KEY_USER = "erp_user";
 const KEY_TOKEN = "erp_token";
 
+const BASE_URL =
+  (import.meta as { env?: Record<string, string> }).env?.VITE_API_URL ??
+  "http://localhost:3000/api";
+
+function clearSession() {
+  setToken(null);
+  localStorage.removeItem(KEY_TOKEN);
+  localStorage.removeItem(KEY_USER);
+  sessionStorage.removeItem(KEY_TOKEN);
+  sessionStorage.removeItem(KEY_USER);
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Solo mostrar spinner si hay token guardado — evita el bloqueo infinito
+  const [loading, setLoading] = useState(() => {
+    return !!(
+      localStorage.getItem(KEY_TOKEN) ?? sessionStorage.getItem(KEY_TOKEN)
+    );
+  });
 
   useEffect(() => {
-    const savedToken = localStorage.getItem(KEY_TOKEN) ?? sessionStorage.getItem(KEY_TOKEN);
-    const savedUserStr = localStorage.getItem(KEY_USER) ?? sessionStorage.getItem(KEY_USER);
-    const savedUser = savedUserStr ? JSON.parse(savedUserStr) : null;
+    const savedToken =
+      localStorage.getItem(KEY_TOKEN) ?? sessionStorage.getItem(KEY_TOKEN);
+    const savedUserStr =
+      localStorage.getItem(KEY_USER) ?? sessionStorage.getItem(KEY_USER);
+    const savedUser: User | null = savedUserStr
+      ? JSON.parse(savedUserStr)
+      : null;
 
     if (!savedToken || !savedUser) {
       setLoading(false);
@@ -39,33 +60,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setToken(savedToken);
 
-    fetch(
-      `${(import.meta as { env?: Record<string, string> }).env?.VITE_API_URL ?? "http://localhost:3000/api"}/auth/me`,
-      {
-        headers: {
-          Authorization: `Bearer ${savedToken}`,
-        },
-      },
-    )
+    // Timeout de seguridad: libera el loading si el servidor no responde en 8s
+    const timeout = setTimeout(() => {
+      clearSession();
+      setLoading(false);
+    }, 8000);
+
+    fetch(`${BASE_URL}/auth/me`, {
+      headers: { Authorization: `Bearer ${savedToken}` },
+    })
       .then((res) => {
         if (!res.ok) throw new Error("Token inválido");
         return res.json();
       })
       .then((json) => {
-        if (json.success) {
+        if (json?.success) {
           setUser(savedUser);
         } else {
-          throw new Error("Token inválido");
+          clearSession();
         }
       })
       .catch(() => {
-        setToken(null);
-        localStorage.removeItem(KEY_TOKEN);
-        localStorage.removeItem(KEY_USER);
-        sessionStorage.removeItem(KEY_TOKEN);
-        sessionStorage.removeItem(KEY_USER);
+        clearSession();
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        clearTimeout(timeout);
+        setLoading(false);
+      });
   }, []);
 
   const login = async (
@@ -74,11 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     remember: boolean,
   ): Promise<{ ok: boolean; error?: string }> => {
     try {
-      const baseUrl =
-        (import.meta as { env?: Record<string, string> }).env?.VITE_API_URL ??
-        "http://localhost:3000/api";
-
-      const res = await fetch(`${baseUrl}/auth/login`, {
+      const res = await fetch(`${BASE_URL}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
@@ -86,19 +103,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const json = await res.json();
 
-      if (!json.success) {
-        return { ok: false, error: json.error ?? "Credenciales inválidas" };
+      if (!res.ok || !json?.success) {
+        return { ok: false, error: json?.error ?? "Credenciales inválidas" };
       }
 
-      const { token, user: apiUser } = json.data;
+      const { token, user: apiUser } = json.data as {
+        token: string;
+        user: User;
+      };
 
-      // Asegurar que el usuario tenga un nombre para mostrar
-      const userWithName = {
+      // Asegurar que siempre haya un nombre para mostrar
+      const userWithName: User = {
         ...apiUser,
-        name: apiUser.name || apiUser.username,
+        name: apiUser.name || (apiUser as any).username,
       };
 
       setToken(token);
+      setUser(userWithName);
 
       if (remember) {
         localStorage.setItem(KEY_TOKEN, token);
@@ -108,7 +129,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         sessionStorage.setItem(KEY_USER, JSON.stringify(userWithName));
       }
 
-      setUser(userWithName);
       return { ok: true };
     } catch (err) {
       return {
@@ -119,12 +139,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
-    setToken(null);
+    clearSession();
     setUser(null);
-    localStorage.removeItem(KEY_TOKEN);
-    localStorage.removeItem(KEY_USER);
-    sessionStorage.removeItem(KEY_TOKEN);
-    sessionStorage.removeItem(KEY_USER);
   };
 
   return (

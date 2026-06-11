@@ -1,6 +1,4 @@
-const BASE_URL =
-  (import.meta as { env?: Record<string, string> }).env?.VITE_API_URL ??
-  "http://localhost:3000/api";
+const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
 
 let token: string | null = null;
 

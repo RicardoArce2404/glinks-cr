@@ -1,51 +1,30 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { Protected } from "@/components/Protected";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Table,
-  TableHeader,
-  TableBody,
-  TableRow,
-  TableHead,
-  TableCell,
+  Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
 } from "@/components/ui/table";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useFetch, useMutation } from "@/hooks/useFetch";
 import { useState } from "react";
 import { productosApi, type CreateProductInput } from "@/services/api/productos";
 import { facturasApi } from "@/services/api/facturas";
-import { checkProductInMaintenances, getMaintenancesByProduct } from "@/services/api/mantenimientos";
+import { checkProductInMaintenances } from "@/services/api/mantenimientos";
 import type { Product } from "@/models";
 import { Plus, Pencil, Trash2, Search, Loader2 } from "lucide-react";
-import { showSuccess, showError, showConfirmDelete, showCannotDelete, showToast, showLoading, closeLoading } from "@/lib/swal";
-
-export const Route = createFileRoute("/inventario")({
-  component: () => (
-    <Protected>
-      <InventarioPage />
-    </Protected>
-  ),
-});
+import {
+  showSuccess, showError, showConfirmDelete, showCannotDelete, showToast,
+} from "@/lib/swal";
 
 const emptyForm: CreateProductInput = {
   name: "",
@@ -55,137 +34,113 @@ const emptyForm: CreateProductInput = {
   billable: true,
 };
 
-const productTypes = [
-  "Router",
-  "PoE",
-  "Tubo metálico",
-  "Antena AP",
-  "Cable",
-  "Otro",
-];
+const productTypes = ["Router", "PoE", "Tubo metálico", "Antena AP", "Cable", "Otro"];
 
-function InventarioPage() {
-  const queryClient = useQueryClient();
+export default function InventarioPage() {
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState<string>("all");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
   const [form, setForm] = useState<CreateProductInput>(emptyForm);
 
-  // Cargar facturas para verificar si un producto está en facturas
-  const { data: invoicesPage } = useQuery({
-    queryKey: ["facturas", "list"],
-    queryFn: () => facturasApi.list(1, 1000),
-    staleTime: 60_000,
-  });
-
+  const { data: invoicesPage } = useFetch(() => facturasApi.list(1, 1000), []);
   const invoices = invoicesPage?.data ?? [];
 
-  const { data: pageData, isLoading } = useQuery({
-    queryKey: ["productos", "list", search, filterType],
-    queryFn: () => {
-      if (search) {
-        return productosApi.search(search, 1, 200);
-      }
-      return productosApi.list(1, 200);
-    },
-  });
+  const {
+    data: pageData,
+    loading: isLoading,
+    refetch,
+  } = useFetch(
+    () => (search ? productosApi.search(search, 1, 200) : productosApi.list(1, 200)),
+    [search]
+  );
 
-  // Función para verificar si un producto está en alguna factura
-  const isProductInInvoices = (productId: string): boolean => {
-    return invoices.some(inv => {
-      const inPhysical = inv.physicalProductItems?.some(item => item.product_id === productId);
-      const inService = inv.serviceProductItems?.some(item => item.product_id === productId);
-      return inPhysical || inService;
-    });
-  };
+  // ── Helpers ───────────────────────────────────────
 
-  // Función para obtener el número de facturas donde aparece un producto
-  const getInvoiceCountForProduct = (productId: string): number => {
-    return invoices.filter(inv => {
-      const inPhysical = inv.physicalProductItems?.some(item => item.product_id === productId);
-      const inService = inv.serviceProductItems?.some(item => item.product_id === productId);
-      return inPhysical || inService;
-    }).length;
-  };
+  const isProductInInvoices = (productId: string): boolean =>
+    invoices.some(
+      (inv) =>
+        inv.physicalProductItems?.some((item) => item.product_id === productId) ||
+        inv.serviceProductItems?.some((item) => item.product_id === productId)
+    );
 
-  const createMutation = useMutation({
-    mutationFn: (data: CreateProductInput) => productosApi.create(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["productos"] });
-      showSuccess("Producto registrado exitosamente", "Producto registrado");
-      setOpen(false);
-      setForm(emptyForm);
-    },
-    onError: (err: Error) => showError(err.message, "Error al registrar"),
-  });
+  const getInvoiceCountForProduct = (productId: string): number =>
+    invoices.filter(
+      (inv) =>
+        inv.physicalProductItems?.some((item) => item.product_id === productId) ||
+        inv.serviceProductItems?.some((item) => item.product_id === productId)
+    ).length;
 
-  const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<CreateProductInput> }) =>
+  // ── Mutaciones ────────────────────────────────────
+
+  const createMutation = useMutation(
+    (data: CreateProductInput) => productosApi.create(data),
+    {
+      onSuccess: () => {
+        refetch();
+        showSuccess("Producto registrado exitosamente", "Producto registrado");
+        setOpen(false);
+        setForm(emptyForm);
+      },
+      onError: (err) => showError(err.message, "Error al registrar"),
+    }
+  );
+
+  const updateMutation = useMutation(
+    ({ id, data }: { id: string; data: Partial<CreateProductInput> }) =>
       productosApi.update(id, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["productos"] });
-      showSuccess("Producto actualizado exitosamente", "Producto actualizado");
-      setOpen(false);
-    },
-    onError: (err: Error) => showError(err.message, "Error al actualizar"),
-  });
+    {
+      onSuccess: () => {
+        refetch();
+        showSuccess("Producto actualizado exitosamente", "Producto actualizado");
+        setOpen(false);
+      },
+      onError: (err) => showError(err.message, "Error al actualizar"),
+    }
+  );
 
-  const deleteMutation = useMutation({
-    mutationFn: async (product: Product) => {
-      // Verificar si el producto está en facturas
-      const inInvoices = isProductInInvoices(product.id);
-      if (inInvoices) {
-        throw new Error("PRODUCT_HAS_INVOICES");
-      }
-      
-      // Verificar si el producto está en mantenimientos
+  const deleteMutation = useMutation(
+    async (product: Product) => {
+      if (isProductInInvoices(product.id)) throw new Error("PRODUCT_HAS_INVOICES");
       const inMaintenances = await checkProductInMaintenances(product.id);
-      if (inMaintenances) {
-        throw new Error("PRODUCT_HAS_MAINTENANCES");
-      }
-      
+      if (inMaintenances) throw new Error("PRODUCT_HAS_MAINTENANCES");
       return productosApi.remove(product.id);
     },
-    onSuccess: (_data, product) => {
-      queryClient.invalidateQueries({ queryKey: ["productos"] });
-      queryClient.invalidateQueries({ queryKey: ["facturas"] });
-      showSuccess(`El producto ${product.name} ha sido eliminado`, "Producto eliminado");
-    },
-    onError: (err: Error, product) => {
-      if (err.message === "PRODUCT_HAS_INVOICES") {
-        const count = getInvoiceCountForProduct(product.id);
-        showCannotDelete(
-          product.name,
-          `Este producto aparece en ${count} factura(s). No puede ser eliminado mientras existan facturas que lo contengan.`
-        );
-      } else if (err.message === "PRODUCT_HAS_MAINTENANCES") {
-        showCannotDelete(
-          product.name,
-          `Este producto ha sido utilizado en mantenimientos. No puede ser eliminado mientras existan registros de mantenimiento asociados.`
-        );
-      } else {
-        showError(err.message, "Error al eliminar");
-      }
-    },
-  });
+    {
+      onSuccess: (_data, product) => {
+        refetch();
+        showSuccess(`El producto ${(product as Product).name} ha sido eliminado`, "Producto eliminado");
+      },
+      onError: (err, product) => {
+        const p = product as Product;
+        if (err.message === "PRODUCT_HAS_INVOICES") {
+          showCannotDelete(p.name, `Este producto aparece en ${getInvoiceCountForProduct(p.id)} factura(s).`);
+        } else if (err.message === "PRODUCT_HAS_MAINTENANCES") {
+          showCannotDelete(p.name, "Este producto ha sido utilizado en mantenimientos.");
+        } else {
+          showError(err.message, "Error al eliminar");
+        }
+      },
+    }
+  );
 
   const handleDelete = async (product: Product) => {
     const confirmed = await showConfirmDelete(product.name, "producto");
-    if (confirmed) {
-      deleteMutation.mutate(product);
-    }
+    if (confirmed) deleteMutation.mutate(product);
   };
 
-  const products = (pageData?.data ?? []).filter((p) => {
-    if (filterType === "all") return true;
-    return p.type === filterType;
-  });
+  // ── Datos filtrados ───────────────────────────────
+
+  const products = (pageData?.data ?? []).filter(
+    (p) => filterType === "all" || p.type === filterType
+  );
 
   const totalProducts = pageData?.total ?? 0;
   const allProducts = pageData?.data ?? [];
   const billableCount = allProducts.filter((p) => p.billable === true).length;
   const nonBillableCount = totalProducts - billableCount;
+
+  // ── Handlers de modal ─────────────────────────────
 
   const openCreate = () => {
     setEditing(null);
@@ -206,14 +161,8 @@ function InventarioPage() {
   };
 
   const submit = () => {
-    if (!form.name.trim()) {
-      showToast("El nombre del producto es requerido", "error");
-      return;
-    }
-    if (form.unit_price < 0) {
-      showToast("El precio no puede ser negativo", "error");
-      return;
-    }
+    if (!form.name.trim()) { showToast("El nombre del producto es requerido", "error"); return; }
+    if (form.unit_price < 0) { showToast("El precio no puede ser negativo", "error"); return; }
     if (editing) {
       updateMutation.mutate({ id: editing.id, data: form });
     } else {
@@ -228,9 +177,7 @@ function InventarioPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Inventario</h1>
-          <p className="text-muted-foreground text-sm">
-            Gestión de productos y servicios
-          </p>
+          <p className="text-muted-foreground text-sm">Gestión de productos y servicios</p>
         </div>
         <Button onClick={openCreate}>
           <Plus className="h-4 w-4 mr-2" />
@@ -242,21 +189,15 @@ function InventarioPage() {
       <div className="grid grid-cols-3 gap-3">
         <Card className="p-4">
           <div className="text-xs text-muted-foreground">Total productos</div>
-          <div className="text-2xl font-bold">
-            {isLoading ? <Skeleton className="h-8 w-10" /> : totalProducts}
-          </div>
+          <div className="text-2xl font-bold">{isLoading ? <Skeleton className="h-8 w-10" /> : totalProducts}</div>
         </Card>
         <Card className="p-4">
           <div className="text-xs text-muted-foreground">Facturables</div>
-          <div className="text-2xl font-bold">
-            {isLoading ? <Skeleton className="h-8 w-10" /> : billableCount}
-          </div>
+          <div className="text-2xl font-bold">{isLoading ? <Skeleton className="h-8 w-10" /> : billableCount}</div>
         </Card>
         <Card className="p-4">
           <div className="text-xs text-muted-foreground">No facturables</div>
-          <div className="text-2xl font-bold">
-            {isLoading ? <Skeleton className="h-8 w-10" /> : nonBillableCount}
-          </div>
+          <div className="text-2xl font-bold">{isLoading ? <Skeleton className="h-8 w-10" /> : nonBillableCount}</div>
         </Card>
       </div>
 
@@ -273,26 +214,16 @@ function InventarioPage() {
             />
           </div>
           <Select value={filterType} onValueChange={setFilterType}>
-            <SelectTrigger>
-              <SelectValue placeholder="Filtrar por tipo" />
-            </SelectTrigger>
+            <SelectTrigger><SelectValue placeholder="Filtrar por tipo" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos los tipos</SelectItem>
-              {productTypes.map((type) => (
-                <SelectItem key={type} value={type}>
-                  {type}
-                </SelectItem>
-              ))}
+              {productTypes.map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
 
         {isLoading ? (
-          <div className="space-y-2">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <Skeleton key={i} className="h-10 w-full" />
-            ))}
-          </div>
+          <div className="space-y-2">{[1,2,3,4,5].map((i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
         ) : (
           <Table>
             <TableHeader>
@@ -309,22 +240,17 @@ function InventarioPage() {
               {products.map((p) => {
                 const hasInvoiceRelation = isProductInInvoices(p.id);
                 const invoiceCount = getInvoiceCountForProduct(p.id);
-                
                 return (
                   <TableRow key={p.id}>
                     <TableCell className="font-medium">{p.name}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{p.type}</Badge>
-                    </TableCell>
+                    <TableCell><Badge variant="outline">{p.type}</Badge></TableCell>
                     <TableCell className="hidden md:table-cell text-muted-foreground max-w-[200px] truncate">
                       {p.description || "—"}
                     </TableCell>
                     <TableCell>₡{p.unit_price.toFixed(2)}</TableCell>
                     <TableCell>
                       {p.billable ? (
-                        <Badge variant="default" className="bg-green-600">
-                          Sí
-                        </Badge>
+                        <Badge variant="default" className="bg-green-600">Sí</Badge>
                       ) : (
                         <Badge variant="secondary">No</Badge>
                       )}
@@ -334,9 +260,9 @@ function InventarioPage() {
                         <Button variant="ghost" size="icon" onClick={() => openEdit(p)} title="Editar producto">
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
+                        <Button
+                          variant="ghost"
+                          size="icon"
                           onClick={() => handleDelete(p)}
                           disabled={hasInvoiceRelation}
                           title={hasInvoiceRelation ? `No se puede eliminar: aparece en ${invoiceCount} factura(s)` : "Eliminar producto"}
@@ -369,27 +295,14 @@ function InventarioPage() {
           <div className="space-y-3">
             <div>
               <Label>Nombre *</Label>
-              <Input
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                placeholder="Ej: Router MikroTik hAP ac2"
-              />
+              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ej: Router MikroTik hAP ac2" />
             </div>
             <div>
               <Label>Tipo *</Label>
-              <Select
-                value={form.type}
-                onValueChange={(v) => setForm({ ...form, type: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
+              <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {productTypes.map((type) => (
-                    <SelectItem key={type} value={type}>
-                      {type}
-                    </SelectItem>
-                  ))}
+                  {productTypes.map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -405,9 +318,7 @@ function InventarioPage() {
             <div>
               <Label>Precio unitario *</Label>
               <Input
-                type="number"
-                step="0.01"
-                min="0"
+                type="number" step="0.01" min="0"
                 value={form.unit_price}
                 onChange={(e) => setForm({ ...form, unit_price: parseFloat(e.target.value) || 0 })}
               />
@@ -424,9 +335,7 @@ function InventarioPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)} disabled={saving}>
-              Cancelar
-            </Button>
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={saving}>Cancelar</Button>
             <Button onClick={submit} disabled={saving}>
               {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               {editing ? "Guardar" : "Registrar"}

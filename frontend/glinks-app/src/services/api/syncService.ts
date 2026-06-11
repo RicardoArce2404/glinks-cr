@@ -9,12 +9,10 @@ import type { CreateProductInput } from './productos';
 import type { CreateMaintenanceInput } from './mantenimientos';
 import type { CreatePhysicalInvoiceInput, CreateLegalInvoiceInput } from './facturas';
 
-// Estado de conexión
 let isOnline = navigator.onLine;
 let syncInProgress = false;
 let syncInterval: NodeJS.Timeout | null = null;
 
-// Escuchar cambios de conexión
 if (typeof window !== 'undefined') {
   window.addEventListener('online', () => {
     isOnline = true;
@@ -28,18 +26,15 @@ if (typeof window !== 'undefined') {
   });
 }
 
-// Verificar si hay conexión a internet (rápido)
 let lastConnectionCheck = 0;
 let cachedConnectionStatus = true;
 
 export async function checkConnection(): Promise<boolean> {
-  // Primero verificar navigator.onLine (instantáneo)
   if (!navigator.onLine) {
     cachedConnectionStatus = false;
     return false;
   }
   
-  // Usar caché para no hacer peticiones constantes (cada 5 segundos)
   const now = Date.now();
   if (now - lastConnectionCheck < 5000) {
     return cachedConnectionStatus;
@@ -47,12 +42,12 @@ export async function checkConnection(): Promise<boolean> {
   
   lastConnectionCheck = now;
   
-  // Verificar con petición HEAD a la API
+ const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
     
-    const response = await fetch(`${process.env.VITE_API_URL || 'http://localhost:3000/api'}/health`, {
+    const response = await fetch(`${BASE_URL}/health`, {
       method: 'HEAD',
       signal: controller.signal,
     });
@@ -66,7 +61,6 @@ export async function checkConnection(): Promise<boolean> {
   }
 }
 
-// Guardar un registro OFFLINE (no espera respuesta del servidor)
 export async function saveOfflineRecord(
   entity: 'client' | 'product' | 'maintenance' | 'invoice',
   action: 'CREATE' | 'UPDATE' | 'DELETE',
@@ -75,7 +69,6 @@ export async function saveOfflineRecord(
 ): Promise<void> {
   console.log(`📦 [Sync] Guardando en cola: ${action} ${entity} - ${id}`);
   
-  // Agregar a la cola de sincronización
   await db.syncQueue.add({
     action,
     entity,
@@ -85,13 +78,11 @@ export async function saveOfflineRecord(
     retries: 0,
   });
   
-  // También guardar una copia del registro completo para consulta offline
   await saveOfflineData(entity, id, data, action);
   
-  console.log(`✅ [Sync] Registro en cola: ${db.syncQueue.count()} pendientes`);
+  console.log(`✅ [Sync] Registro en cola: ${await db.syncQueue.count()} pendientes`);
 }
 
-// Guardar copia de datos para consulta offline
 async function saveOfflineData(entity: string, id: string, data: any, action: string): Promise<void> {
   const offlineRecord = {
     id,
@@ -116,7 +107,6 @@ async function saveOfflineData(entity: string, id: string, data: any, action: st
   }
 }
 
-// Obtener todos los registros offline para mostrar en el frontend
 export async function getOfflineData(
   entity: 'client' | 'product' | 'maintenance' | 'invoice'
 ): Promise<any[]> {
@@ -137,7 +127,6 @@ export async function getOfflineData(
       break;
   }
   
-  // Filtrar solo los que no están sincronizados o son temporales
   return records.filter(r => !r.synced).map(r => ({
     ...r.data,
     id: r.id,
@@ -146,7 +135,6 @@ export async function getOfflineData(
   }));
 }
 
-// Sincronizar registros pendientes
 export async function startSync(): Promise<{ success: number; failed: number }> {
   const isOnlineNow = await checkConnection();
   if (!isOnlineNow) {
@@ -166,7 +154,6 @@ export async function startSync(): Promise<{ success: number; failed: number }> 
   let failed = 0;
   
   try {
-    // Obtener todos los elementos de la cola ordenados por fecha
     const queueItems = await db.syncQueue.orderBy('createdAt').toArray();
     
     console.log(`📋 [Sync] ${queueItems.length} registros pendientes`);
@@ -213,7 +200,6 @@ export async function startSync(): Promise<{ success: number; failed: number }> 
         }
         
         if (result) {
-          // Eliminar de la cola si fue exitoso
           await db.syncQueue.delete(item.id!);
           await markAsSynced(item.entity, item.entityId);
           success++;
@@ -227,7 +213,6 @@ export async function startSync(): Promise<{ success: number; failed: number }> 
         console.error(`❌ [Sync] Error sincronizando ${item.entityId}:`, error);
         failed++;
         
-        // Incrementar contador de reintentos
         await db.syncQueue.update(item.id!, {
           retries: (item.retries || 0) + 1,
         });
@@ -244,7 +229,6 @@ export async function startSync(): Promise<{ success: number; failed: number }> 
   return { success, failed };
 }
 
-// Funciones de sincronización específicas
 async function syncCreateClient(data: any): Promise<boolean> {
   try {
     if (data.tipo === 'fisico') {
@@ -404,7 +388,6 @@ async function markAsSynced(entity: string, entityId: string): Promise<void> {
   }
 }
 
-// Iniciar sincronización periódica
 export function initSyncScheduler(): void {
   if (syncInterval) {
     clearInterval(syncInterval);

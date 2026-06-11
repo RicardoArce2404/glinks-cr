@@ -1,46 +1,27 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { Protected } from "@/components/Protected";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useFetch, useMutation } from "@/hooks/useFetch";
 import { useState } from "react";
-import { fetchAllClients, physicalClientsApi, legalClientsApi } from "@/services/api/clientes";
+import { fetchAllClients } from "@/services/api/clientes";
 import { productosApi } from "@/services/api/productos";
 import {
   mantenimientosApi,
   fetchAllMaintenances,
   type CreateMaintenanceInput,
 } from "@/services/api/mantenimientos";
-import type { UnifiedClient, Product } from "@/models";
 import { Plus, Loader2, Trash2, Package } from "lucide-react";
 import { toast } from "sonner";
-
-export const Route = createFileRoute("/mantenimiento")({
-  component: () => (
-    <Protected>
-      <MantenimientoPage />
-    </Protected>
-  ),
-});
 
 interface MaintenanceProductInput {
   productId: string;
@@ -48,8 +29,7 @@ interface MaintenanceProductInput {
   productName?: string;
 }
 
-function MantenimientoPage() {
-  const queryClient = useQueryClient();
+export default function MantenimientoPage() {
   const [open, setOpen] = useState(false);
   const [filterClientId, setFilterClientId] = useState<string>("all");
   const [form, setForm] = useState<{
@@ -64,57 +44,48 @@ function MantenimientoPage() {
     products: [],
   });
 
-  // Product selector state
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [productAmount, setProductAmount] = useState<number>(1);
 
-  // Cargar clientes
-  const { data: clients = [], isLoading: loadingClients } = useQuery({
-    queryKey: ["clientes", "todos"],
-    queryFn: fetchAllClients,
-  });
+  const { data: clients = [], loading: loadingClients } = useFetch(
+    () => fetchAllClients(),
+    []
+  );
 
-  // Cargar productos
-  const { data: productsPage, isLoading: loadingProducts } = useQuery({
-    queryKey: ["productos", "list"],
-    queryFn: () => productosApi.list(1, 200),
-  });
+  const { data: productsPage, loading: loadingProducts } = useFetch(
+    () => productosApi.list(1, 200),
+    []
+  );
   const products = productsPage?.data ?? [];
 
-  // Cargar mantenimientos
-  const { data: mantData, isLoading: loadingMant } = useQuery({
-    queryKey: ["mantenimientos", "todos"],
-    queryFn: () => fetchAllMaintenances(1, 200),
-  });
-
+  const { data: mantData, loading: loadingMant, refetch } = useFetch(
+    () => fetchAllMaintenances(1, 200),
+    []
+  );
+  
+  // ✅ Garantizar que mantList siempre sea un array, incluso si mantData es null
   const mantList = mantData?.data ?? [];
+  const safeClients = clients ?? [];
 
-  // Filtrar mantenimientos por cliente
   const filteredMant = mantList.filter((m) => {
     if (filterClientId === "all") return true;
     const clientId = m.physical_client_id ?? m.legal_client_id;
     return clientId === filterClientId;
   });
 
-  // Helper para obtener nombre del cliente
   const getClientName = (m: (typeof mantList)[number]) => {
-    if (m.physical_client) {
+    if (m.physical_client)
       return `${m.physical_client.name} ${m.physical_client.last_name_1}`;
-    }
-    if (m.legal_client) {
-      return m.legal_client.name;
-    }
+    if (m.legal_client) return m.legal_client.name;
     const clientId = m.physical_client_id ?? m.legal_client_id;
-    const client = clients.find((c) => c.id === clientId);
-    if (client) {
+    const client = safeClients.find((c) => c.id === clientId);
+    if (client)
       return client.tipo === "fisico"
         ? `${client.name} ${client.last_name_1}`
         : client.name;
-    }
     return "—";
   };
 
-  // Agregar producto al formulario
   const addProduct = () => {
     if (!selectedProductId) {
       toast.error("Seleccione un producto");
@@ -128,7 +99,6 @@ function MantenimientoPage() {
     const product = products.find((p) => p.id === selectedProductId);
     if (!product) return;
 
-    // Verificar si ya existe el producto
     const existing = form.products.find((p) => p.productId === selectedProductId);
     if (existing) {
       setForm({
@@ -144,11 +114,7 @@ function MantenimientoPage() {
         ...form,
         products: [
           ...form.products,
-          {
-            productId: selectedProductId,
-            amount: productAmount,
-            productName: product.name,
-          },
+          { productId: selectedProductId, amount: productAmount, productName: product.name },
         ],
       });
     }
@@ -158,17 +124,13 @@ function MantenimientoPage() {
   };
 
   const removeProduct = (index: number) => {
-    setForm({
-      ...form,
-      products: form.products.filter((_, i) => i !== index),
-    });
+    setForm({ ...form, products: form.products.filter((_, i) => i !== index) });
   };
 
-  const createMutation = useMutation({
-    mutationFn: async (data: typeof form) => {
-      if (!data.clientId || !data.clientType) {
+  const createMutation = useMutation(
+    async (data: typeof form) => {
+      if (!data.clientId || !data.clientType)
         throw new Error("Debe seleccionar un cliente");
-      }
 
       const input: CreateMaintenanceInput = {
         description: data.description,
@@ -179,41 +141,26 @@ function MantenimientoPage() {
       };
 
       if (data.clientType === "fisico") {
-        return mantenimientosApi.createPhysical({
-          ...input,
-          physicalClientId: data.clientId,
-        });
+        return mantenimientosApi.createPhysical({ ...input, physicalClientId: data.clientId });
       } else {
-        return mantenimientosApi.createLegal({
-          ...input,
-          legalClientId: data.clientId,
-        });
+        return mantenimientosApi.createLegal({ ...input, legalClientId: data.clientId });
       }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["mantenimientos"] });
-      toast.success("Mantenimiento registrado correctamente");
-      setOpen(false);
-      setForm({
-        description: "",
-        clientId: "",
-        clientType: null,
-        products: [],
-      });
-    },
-    onError: (err: Error) => toast.error(err.message),
-  });
+    {
+      onSuccess: () => {
+        refetch();
+        toast.success("Mantenimiento registrado correctamente");
+        setOpen(false);
+        setForm({ description: "", clientId: "", clientType: null, products: [] });
+      },
+      onError: (err) => toast.error(err.message),
+    }
+  );
 
   const handleClientChange = (clientId: string) => {
-    const client = clients.find((c) => c.id === clientId);
+    const client = safeClients.find((c) => c.id === clientId);
     if (!client) return;
-
-    setForm({
-      ...form,
-      clientId: client.id,
-      clientType: client.tipo,
-      products: [], // Reset products when client changes
-    });
+    setForm({ ...form, clientId: client.id, clientType: client.tipo, products: [] });
   };
 
   const submit = () => {
@@ -253,16 +200,12 @@ function MantenimientoPage() {
         <div className="mb-4 max-w-sm">
           <Label className="mb-1.5 block">Filtrar por cliente</Label>
           <Select value={filterClientId} onValueChange={setFilterClientId}>
-            <SelectTrigger>
-              <SelectValue placeholder="Todos los clientes" />
-            </SelectTrigger>
+            <SelectTrigger><SelectValue placeholder="Todos los clientes" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos los clientes</SelectItem>
-              {clients.map((c) => (
+              {safeClients.map((c) => (
                 <SelectItem key={c.id} value={c.id}>
-                  {c.tipo === "fisico"
-                    ? `${c.name} ${c.last_name_1} ${c.last_name_2}`
-                    : c.name}
+                  {c.tipo === "fisico" ? `${c.name} ${c.last_name_1} ${c.last_name_2}` : c.name}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -271,34 +214,25 @@ function MantenimientoPage() {
 
         {loading ? (
           <div className="space-y-2">
-            {[1, 2, 3].map((i) => (
-              <Skeleton key={i} className="h-24 w-full rounded-md" />
-            ))}
+            {[1, 2, 3].map((i) => <Skeleton key={i} className="h-24 w-full rounded-md" />)}
           </div>
         ) : (
           <div className="space-y-3">
-            {filteredMant.map((m) => {
-              const clientName = getClientName(m);
-              return (
-                <div
-                  key={m.id}
-                  className="p-4 border rounded-lg space-y-2"
-                >
+            {filteredMant.length > 0 ? (
+              filteredMant.map((m) => (
+                <div key={m.id} className="p-4 border rounded-lg space-y-2">
                   <div className="flex flex-wrap justify-between items-start gap-2">
                     <div>
-                      <div className="font-medium">{clientName}</div>
-                      <div className="text-sm text-muted-foreground mt-1">
-                        {m.description}
-                      </div>
+                      <div className="font-medium">{getClientName(m)}</div>
+                      <div className="text-sm text-muted-foreground mt-1">{m.description}</div>
                     </div>
                     <div className="text-right text-xs text-muted-foreground">
-                      <div>{new Date(m.date).toLocaleString()}</div>
+                      <div>{new Date(m.date).toLocaleString("es-CR")}</div>
                       <div>Responsable: {m.responsible?.username ?? "—"}</div>
                     </div>
                   </div>
 
-                  {/* Mostrar productos utilizados */}
-                  {m.maintenanceProducts.length > 0 && (
+                  {m.maintenanceProducts && m.maintenanceProducts.length > 0 && (
                     <div className="mt-2 pt-2 border-t">
                       <div className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1">
                         <Package className="h-3 w-3" />
@@ -314,9 +248,8 @@ function MantenimientoPage() {
                     </div>
                   )}
                 </div>
-              );
-            })}
-            {filteredMant.length === 0 && (
+              ))
+            ) : (
               <p className="text-center py-8 text-muted-foreground text-sm">
                 No hay registros de mantenimiento
               </p>
@@ -325,25 +258,19 @@ function MantenimientoPage() {
         )}
       </Card>
 
-      {/* Dialog para nuevo mantenimiento */}
+      {/* El resto del componente (Dialog) se mantiene igual */}
       <Dialog open={open} onOpenChange={(v) => !v && setOpen(false)}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Registrar nuevo mantenimiento</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            {/* Selección de cliente */}
             <div>
               <Label>Cliente</Label>
-              <Select
-                value={form.clientId}
-                onValueChange={handleClientChange}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccione un cliente" />
-                </SelectTrigger>
+              <Select value={form.clientId} onValueChange={handleClientChange}>
+                <SelectTrigger><SelectValue placeholder="Seleccione un cliente" /></SelectTrigger>
                 <SelectContent>
-                  {clients.map((c) => (
+                  {safeClients.map((c) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.tipo === "fisico"
                         ? `${c.name} ${c.last_name_1} ${c.last_name_2}`
@@ -354,15 +281,12 @@ function MantenimientoPage() {
               </Select>
             </div>
 
-            {/* Productos utilizados */}
             <div className="border rounded-md p-3 space-y-3">
               <Label>Productos utilizados</Label>
               <div className="grid grid-cols-12 gap-2 items-end">
                 <div className="col-span-7">
                   <Select value={selectedProductId} onValueChange={setSelectedProductId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Seleccione producto" />
-                    </SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder="Seleccione producto" /></SelectTrigger>
                     <SelectContent>
                       {products.map((p) => (
                         <SelectItem key={p.id} value={p.id}>
@@ -374,41 +298,24 @@ function MantenimientoPage() {
                 </div>
                 <div className="col-span-3">
                   <Input
-                    type="number"
-                    min={1}
+                    type="number" min={1}
                     value={productAmount}
                     onChange={(e) => setProductAmount(Math.max(1, parseInt(e.target.value) || 1))}
                     placeholder="Cantidad"
                   />
                 </div>
                 <div className="col-span-2">
-                  <Button
-                    className="w-full"
-                    onClick={addProduct}
-                    disabled={!selectedProductId}
-                    type="button"
-                  >
+                  <Button className="w-full" onClick={addProduct} disabled={!selectedProductId} type="button">
                     Agregar
                   </Button>
                 </div>
               </div>
 
-              {/* Lista de productos agregados */}
               <div className="space-y-1 mt-2">
                 {form.products.map((p, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between p-2 bg-muted rounded-md text-sm"
-                  >
-                    <span>
-                      {p.productName} x{p.amount}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeProduct(idx)}
-                      type="button"
-                    >
+                  <div key={idx} className="flex items-center justify-between p-2 bg-muted rounded-md text-sm">
+                    <span>{p.productName} x{p.amount}</span>
+                    <Button variant="ghost" size="icon" onClick={() => removeProduct(idx)} type="button">
                       <Trash2 className="h-3 w-3" />
                     </Button>
                   </div>
@@ -421,7 +328,6 @@ function MantenimientoPage() {
               </div>
             </div>
 
-            {/* Descripción */}
             <div>
               <Label>Descripción del trabajo realizado</Label>
               <Textarea
@@ -436,12 +342,9 @@ function MantenimientoPage() {
               El responsable se asigna automáticamente según el usuario que inició sesión.
             </p>
           </div>
+
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setOpen(false)}
-              disabled={createMutation.isPending}
-            >
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={createMutation.isPending}>
               Cancelar
             </Button>
             <Button onClick={submit} disabled={createMutation.isPending}>

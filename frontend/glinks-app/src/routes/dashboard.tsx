@@ -1,60 +1,39 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { Protected } from "@/components/Protected";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useQuery } from "@tanstack/react-query";
+import { useFetch } from "@/hooks/useFetch";
 import { physicalClientsApi, legalClientsApi } from "@/services/api/clientes";
 import { productosApi } from "@/services/api/productos";
 import { facturasApi } from "@/services/api/facturas";
 import { fetchAllMaintenances } from "@/services/api/mantenimientos";
 import { Users, Wrench, Package, Receipt } from "lucide-react";
+import type { Invoice } from "@/models";
 
-export const Route = createFileRoute("/dashboard")({
-  component: () => (
-    <Protected>
-      <Dashboard />
-    </Protected>
-  ),
-});
+export default function DashboardPage() {
+  const { data: physicalPage, loading: loadingPhysical } = useFetch(
+    () => physicalClientsApi.list(1, 1),
+    []
+  );
+  const { data: legalPage, loading: loadingLegal } = useFetch(
+    () => legalClientsApi.list(1, 1),
+    []
+  );
+  const { data: productsPage, loading: loadingProducts } = useFetch(
+    () => productosApi.list(1, 200),
+    []
+  );
+  const { data: invoicesPage, loading: loadingInvoices } = useFetch(
+    () => facturasApi.list(1, 100),
+    []
+  );
+  const { data: mantData, loading: loadingMant } = useFetch(
+    () => fetchAllMaintenances(1, 1),
+    []
+  );
 
-function Dashboard() {
-  // Clientes físicos
-  const { data: physicalPage, isLoading: loadingPhysical } = useQuery({
-    queryKey: ["clientes-fisicos", "count"],
-    queryFn: () => physicalClientsApi.list(1, 1),
-  });
+  const loading =
+    loadingPhysical || loadingLegal || loadingProducts || loadingInvoices || loadingMant;
 
-  // Clientes jurídicos
-  const { data: legalPage, isLoading: loadingLegal } = useQuery({
-    queryKey: ["clientes-juridicos", "count"],
-    queryFn: () => legalClientsApi.list(1, 1),
-  });
-
-  // Productos
-  const { data: productsPage, isLoading: loadingProducts } = useQuery({
-    queryKey: ["productos", "list"],
-    queryFn: () => productosApi.list(1, 200),
-  });
-
-  // Facturas
-  const { data: invoicesPage, isLoading: loadingInvoices } = useQuery({
-    queryKey: ["facturas", "list"],
-    queryFn: () => facturasApi.list(1, 100),
-  });
-
-  // Mantenimientos
-  const { data: mantData, isLoading: loadingMant } = useQuery({
-    queryKey: ["mantenimientos", "count"],
-    queryFn: () => fetchAllMaintenances(1, 1),
-  });
-
-  const loading = loadingPhysical || loadingLegal || loadingProducts || loadingInvoices || loadingMant;
-
-  // ✅ VALORES SEGUROS - siempre usar arrays vacíos como fallback
-  const physicalTotal = physicalPage?.total ?? 0;
-  const legalTotal = legalPage?.total ?? 0;
-  const totalClients = physicalTotal + legalTotal;
-
+  const totalClients = (physicalPage?.total ?? 0) + (legalPage?.total ?? 0);
   const totalMaintenances = mantData?.total ?? 0;
 
   const productsList = productsPage?.data ?? [];
@@ -62,30 +41,15 @@ function Dashboard() {
   const billableProducts = productsList.filter((p) => p.billable === true).length;
 
   const invoicesList = invoicesPage?.data ?? [];
-  // ✅ Calcular total facturado sin usar reduce sobre undefined
   let totalBilled = 0;
-  for (let i = 0; i < invoicesList.length; i++) {
-    const inv = invoicesList[i];
-    // Calcular subtotal de productos físicos
-    let subtotal = 0;
-    if (inv.physicalProductItems) {
-      for (let j = 0; j < inv.physicalProductItems.length; j++) {
-        const item = inv.physicalProductItems[j];
-        if (item?.product?.unit_price) {
-          subtotal += item.product.unit_price * (item.amount ?? 1);
-        }
-      }
+  for (const inv of invoicesList as Invoice[]) {
+    for (const item of inv.physicalProductItems ?? []) {
+      if (item?.product?.unit_price)
+        totalBilled += item.product.unit_price * (item.amount ?? 1);
     }
-    // Calcular subtotal de servicios
-    if (inv.serviceProductItems) {
-      for (let j = 0; j < inv.serviceProductItems.length; j++) {
-        const item = inv.serviceProductItems[j];
-        if (item?.product?.unit_price) {
-          subtotal += item.product.unit_price;
-        }
-      }
+    for (const item of inv.serviceProductItems ?? []) {
+      if (item?.product?.unit_price) totalBilled += item.product.unit_price;
     }
-    totalBilled += subtotal;
   }
 
   const stats = [
@@ -103,14 +67,14 @@ function Dashboard() {
     },
     {
       label: "Productos",
-      value: loading ? "…" : `${billableProducts} / ${totalProducts}`,
+      value: `${billableProducts} / ${totalProducts}`,
       subtitle: "facturables / total",
       icon: Package,
       color: "bg-emerald-500/10 text-emerald-600",
     },
     {
       label: "Total facturado",
-      value: loading ? "…" : `₡${totalBilled.toFixed(2)}`,
+      value: `₡${totalBilled.toFixed(2)}`,
       icon: Receipt,
       color: "bg-purple-500/10 text-purple-600",
     },
@@ -152,45 +116,33 @@ function Dashboard() {
           </div>
         ) : invoicesList.length > 0 ? (
           <div className="space-y-2">
-            {invoicesList.slice(0, 5).map((inv) => {
+            {(invoicesList as Invoice[]).slice(0, 5).map((inv) => {
               let clientName = "—";
-              if (inv.physicalClient) {
+              if (inv.physicalClient)
                 clientName = `${inv.physicalClient.name} ${inv.physicalClient.last_name_1}`;
-              } else if (inv.legalClient) {
-                clientName = inv.legalClient.name;
-              }
-              
-              // Calcular total de esta factura
+              else if (inv.legalClient) clientName = inv.legalClient.name;
+
               let subtotal = 0;
-              if (inv.physicalProductItems) {
-                for (let j = 0; j < inv.physicalProductItems.length; j++) {
-                  const item = inv.physicalProductItems[j];
-                  if (item?.product?.unit_price) {
-                    subtotal += item.product.unit_price * (item.amount ?? 1);
-                  }
-                }
+              for (const item of inv.physicalProductItems ?? []) {
+                if (item?.product?.unit_price)
+                  subtotal += item.product.unit_price * (item.amount ?? 1);
               }
-              if (inv.serviceProductItems) {
-                for (let j = 0; j < inv.serviceProductItems.length; j++) {
-                  const item = inv.serviceProductItems[j];
-                  if (item?.product?.unit_price) {
-                    subtotal += item.product.unit_price;
-                  }
-                }
+              for (const item of inv.serviceProductItems ?? []) {
+                if (item?.product?.unit_price) subtotal += item.product.unit_price;
               }
-              
+
               return (
                 <div
                   key={inv.id}
                   className="flex items-center justify-between p-3 rounded-md bg-muted/50"
                 >
                   <div>
-                    <div className="font-medium">{new Date(inv.date).toLocaleDateString()}</div>
+                    <div className="font-medium">
+                      {new Date(inv.date).toLocaleDateString("es-CR")}
+                    </div>
                     <div className="text-xs text-muted-foreground">{clientName}</div>
                   </div>
-                  <div className="text-right">
-                    <div className="font-semibold">₡{subtotal.toFixed(2)}</div>
-                  </div>
+                  <div className="font-semibold">₡{subtotal.toFixed(2)}</div>
                 </div>
               );
             })}

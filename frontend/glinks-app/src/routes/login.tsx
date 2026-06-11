@@ -1,5 +1,5 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,11 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Card } from "@/components/ui/card";
 import { Network, Loader2 } from "lucide-react";
 
-export const Route = createFileRoute("/login")({
-  component: LoginPage,
-});
-
-function LoginPage() {
+export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const [username, setUsername] = useState("");
@@ -23,16 +19,22 @@ function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!username.trim() || !password.trim()) {
+      setError("Por favor ingrese usuario y contraseña");
+      return;
+    }
     setError("");
     setLoading(true);
 
-    const result = await login(username, password, remember);
-    setLoading(false);
-
-    if (!result.ok) {
-      setError(result.error ?? "Credenciales inválidas");
-    } else {
-      navigate({ to: "/dashboard" });
+    try {
+      const result = await login(username, password, remember);
+      if (!result.ok) {
+        setError(result.error ?? "Credenciales inválidas");
+      } else {
+        navigate("/dashboard", { replace: true });
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -57,6 +59,7 @@ function LoginPage() {
               onChange={(e) => setUsername(e.target.value)}
               disabled={loading}
               autoComplete="username"
+              autoFocus
             />
           </div>
           <div>
@@ -81,11 +84,13 @@ function LoginPage() {
               Recordarme
             </Label>
           </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && (
+            <p className="text-sm text-destructive bg-destructive/10 rounded-md px-3 py-2">
+              {error}
+            </p>
+          )}
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : null}
+            {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             {loading ? "Ingresando..." : "Ingresar"}
           </Button>
         </form>

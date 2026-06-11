@@ -1,4 +1,4 @@
-import { Navigate } from "@tanstack/react-router";
+import { Navigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import type { Role } from "@/models";
 
@@ -24,11 +24,11 @@ export function RoleBasedRoute({
   }
 
   if (!user) {
-    return <Navigate to="/login" />;
+    return <Navigate to="/login" replace />;
   }
 
   if (!allowedRoles.includes(user.role)) {
-    return <Navigate to={fallbackPath} />;
+    return <Navigate to={fallbackPath} replace />;
   }
 
   return <>{children}</>;

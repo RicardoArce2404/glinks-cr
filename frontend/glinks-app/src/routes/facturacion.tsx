@@ -1,34 +1,19 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { Protected } from "@/components/Protected";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Table,
-  TableHeader,
-  TableBody,
-  TableHead,
-  TableRow,
-  TableCell,
+  Table, TableHeader, TableBody, TableHead, TableRow, TableCell,
 } from "@/components/ui/table";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useFetch, useMutation } from "@/hooks/useFetch";
 import { useState } from "react";
 import { fetchAllClients } from "@/services/api/clientes";
 import { productosApi } from "@/services/api/productos";
@@ -37,14 +22,6 @@ import type { Invoice, Product } from "@/models";
 import { Plus, Eye, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { addDays } from "date-fns";
-
-export const Route = createFileRoute("/facturacion")({
-  component: () => (
-    <Protected>
-      <FacturacionPage />
-    </Protected>
-  ),
-});
 
 interface PhysicalCartItem {
   productId: string;
@@ -59,8 +36,7 @@ interface ServiceCartItem {
   product: Product;
 }
 
-function FacturacionPage() {
-  const queryClient = useQueryClient();
+export default function FacturacionPage() {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<Invoice | null>(null);
 
@@ -73,41 +49,34 @@ function FacturacionPage() {
   const [serviceStartDate, setServiceStartDate] = useState(new Date());
   const [serviceEndDate, setServiceEndDate] = useState(addDays(new Date(), 30));
 
-  const { data: clients = [], isLoading: loadingClients } = useQuery({
-    queryKey: ["clientes", "todos"],
-    queryFn: fetchAllClients,
-    staleTime: 60_000,
-  });
+  const { data: clientsData = [], loading: loadingClients } = useFetch(
+    () => fetchAllClients(),
+    []
+  );
+  const clients = clientsData ?? [];
 
-  const { data: productsPage, isLoading: loadingProducts } = useQuery({
-    queryKey: ["productos", "list"],
-    queryFn: () => productosApi.list(1, 200),
-  });
+  const { data: productsPage, loading: loadingProducts } = useFetch(
+    () => productosApi.list(1, 200),
+    []
+  );
 
-  const { data: invoicesPage, isLoading: loadingInvoices } = useQuery({
-    queryKey: ["facturas", "list"],
-    queryFn: () => facturasApi.list(1, 200),
-  });
+  const { data: invoicesPage, loading: loadingInvoices, refetch } = useFetch(
+    () => facturasApi.list(1, 200),
+    []
+  );
 
   const products = productsPage?.data ?? [];
   const invoices = invoicesPage?.data ?? [];
-
   const physicalProducts = products.filter((p) => p.billable === true);
   const serviceProducts = products.filter((p) => p.billable === false);
 
-  const selectedClient = clients.find((c) => c.id === clientId);
+  const selectedClient = clients?.find((c) => c.id === clientId);
   const isExonerated = selectedClient?.exonerated ?? false;
 
   const calculateSubtotal = () => {
     let subtotal = 0;
-    for (let i = 0; i < physicalItems.length; i++) {
-      const item = physicalItems[i];
-      subtotal += (item.product?.unit_price ?? 0) * (item.amount ?? 1);
-    }
-    for (let i = 0; i < serviceItems.length; i++) {
-      const item = serviceItems[i];
-      subtotal += item.product?.unit_price ?? 0;
-    }
+    for (const item of physicalItems) subtotal += (item.product?.unit_price ?? 0) * (item.amount ?? 1);
+    for (const item of serviceItems) subtotal += item.product?.unit_price ?? 0;
     return subtotal;
   };
 
@@ -128,14 +97,8 @@ function FacturacionPage() {
   };
 
   const addPhysicalItem = () => {
-    if (!selectedPhysicalProductId) {
-      toast.error("Seleccione un producto");
-      return;
-    }
-    if (physicalAmount < 1) {
-      toast.error("La cantidad debe ser mayor a 0");
-      return;
-    }
+    if (!selectedPhysicalProductId) { toast.error("Seleccione un producto"); return; }
+    if (physicalAmount < 1) { toast.error("La cantidad debe ser mayor a 0"); return; }
 
     const product = physicalProducts.find((p) => p.id === selectedPhysicalProductId);
     if (!product) return;
@@ -143,10 +106,7 @@ function FacturacionPage() {
     const existingIndex = physicalItems.findIndex((i) => i.productId === selectedPhysicalProductId);
     if (existingIndex >= 0) {
       const newItems = [...physicalItems];
-      newItems[existingIndex] = {
-        ...newItems[existingIndex],
-        amount: newItems[existingIndex].amount + physicalAmount,
-      };
+      newItems[existingIndex] = { ...newItems[existingIndex], amount: newItems[existingIndex].amount + physicalAmount };
       setPhysicalItems(newItems);
     } else {
       setPhysicalItems([...physicalItems, { productId: selectedPhysicalProductId, amount: physicalAmount, product }]);
@@ -161,30 +121,20 @@ function FacturacionPage() {
   };
 
   const addServiceItem = () => {
-    if (!selectedServiceProductId) {
-      toast.error("Seleccione un servicio");
-      return;
-    }
+    if (!selectedServiceProductId) { toast.error("Seleccione un servicio"); return; }
 
     const product = serviceProducts.find((p) => p.id === selectedServiceProductId);
     if (!product) return;
 
-    const existing = serviceItems.find((i) => i.productId === selectedServiceProductId);
-    if (existing) {
+    if (serviceItems.find((i) => i.productId === selectedServiceProductId)) {
       toast.error("Este servicio ya está agregado");
       return;
     }
 
     setServiceItems([
       ...serviceItems,
-      {
-        productId: selectedServiceProductId,
-        startDate: serviceStartDate,
-        endDate: serviceEndDate,
-        product,
-      },
+      { productId: selectedServiceProductId, startDate: serviceStartDate, endDate: serviceEndDate, product },
     ]);
-
     setSelectedServiceProductId("");
   };
 
@@ -192,18 +142,16 @@ function FacturacionPage() {
     setServiceItems(serviceItems.filter((_, i) => i !== index));
   };
 
-  const createMutation = useMutation({
-    mutationFn: async () => {
+  const createMutation = useMutation(
+    async () => {
       if (!selectedClient) throw new Error("Seleccione un cliente");
-      if (physicalItems.length === 0 && serviceItems.length === 0) {
+      if (physicalItems.length === 0 && serviceItems.length === 0)
         throw new Error("Agregue al menos un producto o servicio");
-      }
 
       const physicalProductItems = physicalItems.map((item) => ({
         productId: item.productId,
         amount: item.amount,
       }));
-
       const serviceProductItems = serviceItems.map((item) => ({
         productId: item.productId,
         startDate: item.startDate,
@@ -211,69 +159,44 @@ function FacturacionPage() {
       }));
 
       if (selectedClient.tipo === "fisico") {
-        return facturasApi.createPhysical({
-          physicalClientId: clientId,
-          physicalProductItems,
-          serviceProductItems,
-        });
+        return facturasApi.createPhysical({ physicalClientId: clientId, physicalProductItems, serviceProductItems });
       } else {
-        return facturasApi.createLegal({
-          legalClientId: clientId,
-          physicalProductItems,
-          serviceProductItems,
-        });
+        return facturasApi.createLegal({ legalClientId: clientId, physicalProductItems, serviceProductItems });
       }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["facturas"] });
-      toast.success("Factura creada exitosamente");
-      setOpen(false);
-      resetForm();
-    },
-    onError: (err: Error) => toast.error(err.message),
-  });
+    {
+      onSuccess: () => {
+        refetch();
+        toast.success("Factura creada exitosamente");
+        setOpen(false);
+        resetForm();
+      },
+      onError: (err) => toast.error(err.message),
+    }
+  );
+
+  const submit = () => {
+    if (!clientId) { toast.error("Seleccione un cliente"); return; }
+    if (physicalItems.length === 0 && serviceItems.length === 0) {
+      toast.error("Agregue al menos un producto o servicio"); return;
+    }
+    createMutation.mutate(undefined as any);
+  };
 
   const getClientName = (invoice: Invoice) => {
-    if (invoice.physicalClient) {
+    if (invoice.physicalClient)
       return `${invoice.physicalClient.name} ${invoice.physicalClient.last_name_1}`;
-    }
-    if (invoice.legalClient) {
-      return invoice.legalClient.name;
-    }
+    if (invoice.legalClient) return invoice.legalClient.name;
     return "—";
   };
 
   const getInvoiceTotal = (invoice: Invoice) => {
-    let total = 0;
-    if (invoice.physicalProductItems) {
-      for (let i = 0; i < invoice.physicalProductItems.length; i++) {
-        const item = invoice.physicalProductItems[i];
-        if (item?.product?.unit_price) {
-          total += item.product.unit_price * (item.amount ?? 1);
-        }
-      }
-    }
-    if (invoice.serviceProductItems) {
-      for (let i = 0; i < invoice.serviceProductItems.length; i++) {
-        const item = invoice.serviceProductItems[i];
-        if (item?.product?.unit_price) {
-          total += item.product.unit_price;
-        }
-      }
-    }
-    return total;
-  };
-
-  const submit = () => {
-    if (!clientId) {
-      toast.error("Seleccione un cliente");
-      return;
-    }
-    if (physicalItems.length === 0 && serviceItems.length === 0) {
-      toast.error("Agregue al menos un producto o servicio");
-      return;
-    }
-    createMutation.mutate();
+    let t = 0;
+    for (const item of invoice.physicalProductItems ?? [])
+      if (item?.product?.unit_price) t += item.product.unit_price * (item.amount ?? 1);
+    for (const item of invoice.serviceProductItems ?? [])
+      if (item?.product?.unit_price) t += item.product.unit_price;
+    return t;
   };
 
   return (
@@ -292,9 +215,7 @@ function FacturacionPage() {
       <Card className="p-4">
         {loadingInvoices ? (
           <div className="space-y-2">
-            {[1, 2, 3, 4].map((i) => (
-              <Skeleton key={i} className="h-10 w-full" />
-            ))}
+            {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-10 w-full" />)}
           </div>
         ) : (
           <Table>
@@ -310,7 +231,7 @@ function FacturacionPage() {
             <TableBody>
               {invoices.map((inv) => (
                 <TableRow key={inv.id}>
-                  <TableCell>{new Date(inv.date).toLocaleDateString()}</TableCell>
+                  <TableCell>{new Date(inv.date).toLocaleDateString("es-CR")}</TableCell>
                   <TableCell className="font-medium">{getClientName(inv)}</TableCell>
                   <TableCell className="hidden md:table-cell">
                     <Badge variant={inv.physicalClient ? "default" : "secondary"}>
@@ -337,7 +258,6 @@ function FacturacionPage() {
         )}
       </Card>
 
-      {/* NEW INVOICE DIALOG */}
       <Dialog open={open} onOpenChange={(v) => !v && setOpen(false)}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -347,15 +267,11 @@ function FacturacionPage() {
             <div>
               <Label>Cliente</Label>
               <Select value={clientId} onValueChange={setClientId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccione un cliente" />
-                </SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="Seleccione un cliente" /></SelectTrigger>
                 <SelectContent>
                   {clients.map((c) => (
                     <SelectItem key={c.id} value={c.id}>
-                      {c.tipo === "fisico"
-                        ? `${c.name} ${c.last_name_1}`
-                        : c.name}
+                      {c.tipo === "fisico" ? `${c.name} ${c.last_name_1}` : c.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -365,16 +281,13 @@ function FacturacionPage() {
               )}
             </div>
 
-            {/* Productos Físicos */}
             <div className="border rounded-md p-3 space-y-3">
               <h4 className="font-medium">Productos físicos</h4>
               <div className="grid grid-cols-12 gap-2 items-end">
                 <div className="col-span-6">
                   <Label>Producto</Label>
                   <Select value={selectedPhysicalProductId} onValueChange={setSelectedPhysicalProductId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Seleccione" />
-                    </SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder="Seleccione" /></SelectTrigger>
                     <SelectContent>
                       {physicalProducts.map((p) => (
                         <SelectItem key={p.id} value={p.id}>
@@ -387,46 +300,41 @@ function FacturacionPage() {
                 <div className="col-span-4">
                   <Label>Cantidad</Label>
                   <Input
-                    type="number"
-                    min={1}
+                    type="number" min={1}
                     value={physicalAmount}
                     onChange={(e) => setPhysicalAmount(Math.max(1, parseInt(e.target.value) || 1))}
                   />
                 </div>
                 <div className="col-span-2">
-                  <Button className="w-full" onClick={addPhysicalItem} type="button">
-                    Agregar
-                  </Button>
+                  <Button className="w-full" onClick={addPhysicalItem} type="button">Agregar</Button>
                 </div>
               </div>
 
               <div className="space-y-1">
-                {physicalItems.map((item, idx) => (
-                  <div key={idx} className="flex justify-between items-center p-2 bg-muted rounded text-sm">
-                    <span>{item.product.name} x{item.amount}</span>
-                    <div className="flex items-center gap-2">
-                      <span>₡{((item.product?.unit_price ?? 0) * item.amount).toFixed(2)}</span>
-                      <Button variant="ghost" size="sm" onClick={() => removePhysicalItem(idx)} type="button">
-                        Eliminar
-                      </Button>
+                {physicalItems.length > 0 ? (
+                  physicalItems.map((item, idx) => (
+                    <div key={idx} className="flex justify-between items-center p-2 bg-muted rounded text-sm">
+                      <span>{item.product.name} x{item.amount}</span>
+                      <div className="flex items-center gap-2">
+                        <span>₡{((item.product?.unit_price ?? 0) * item.amount).toFixed(2)}</span>
+                        <Button variant="ghost" size="sm" onClick={() => removePhysicalItem(idx)} type="button">
+                          Eliminar
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                ))}
-                {physicalItems.length === 0 && (
+                  ))
+                ) : (
                   <p className="text-xs text-muted-foreground text-center py-2">No hay productos agregados</p>
                 )}
               </div>
             </div>
 
-            {/* Servicios */}
             <div className="border rounded-md p-3 space-y-3">
               <h4 className="font-medium">Servicios</h4>
               <div>
                 <Label>Servicio</Label>
                 <Select value={selectedServiceProductId} onValueChange={setSelectedServiceProductId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleccione" />
-                  </SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="Seleccione" /></SelectTrigger>
                   <SelectContent>
                     {serviceProducts.map((p) => (
                       <SelectItem key={p.id} value={p.id}>
@@ -459,29 +367,29 @@ function FacturacionPage() {
               </Button>
 
               <div className="space-y-1">
-                {serviceItems.map((item, idx) => (
-                  <div key={idx} className="flex justify-between items-center p-2 bg-muted rounded text-sm">
-                    <div>
-                      <div>{item.product.name}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {item.startDate.toLocaleDateString()} - {item.endDate.toLocaleDateString()}
+                {serviceItems.length > 0 ? (
+                  serviceItems.map((item, idx) => (
+                    <div key={idx} className="flex justify-between items-center p-2 bg-muted rounded text-sm">
+                      <div>
+                        <div>{item.product.name}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {item.startDate.toLocaleDateString("es-CR")} - {item.endDate.toLocaleDateString("es-CR")}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span>₡{(item.product?.unit_price ?? 0).toFixed(2)}</span>
+                        <Button variant="ghost" size="sm" onClick={() => removeServiceItem(idx)} type="button">
+                          Eliminar
+                        </Button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span>₡{(item.product?.unit_price ?? 0).toFixed(2)}</span>
-                      <Button variant="ghost" size="sm" onClick={() => removeServiceItem(idx)} type="button">
-                        Eliminar
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-                {serviceItems.length === 0 && (
+                  ))
+                ) : (
                   <p className="text-xs text-muted-foreground text-center py-2">No hay servicios agregados</p>
                 )}
               </div>
             </div>
 
-            {/* Totales */}
             <div className="space-y-1 text-sm border-t pt-3">
               <div className="flex justify-between">
                 <span>Subtotal</span>
@@ -499,6 +407,7 @@ function FacturacionPage() {
               </div>
             </div>
           </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)} disabled={createMutation.isPending}>
               Cancelar
@@ -511,7 +420,6 @@ function FacturacionPage() {
         </DialogContent>
       </Dialog>
 
-      {/* VIEW INVOICE DIALOG */}
       <Dialog open={!!view} onOpenChange={(v) => !v && setView(null)}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -522,7 +430,7 @@ function FacturacionPage() {
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div>
                   <span className="text-muted-foreground">Fecha:</span>
-                  <div>{new Date(view.date).toLocaleString()}</div>
+                  <div>{new Date(view.date).toLocaleString("es-CR")}</div>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Cliente:</span>
@@ -555,7 +463,8 @@ function FacturacionPage() {
                           <span>₡{(item.product?.unit_price ?? 0).toFixed(2)}</span>
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          Período: {new Date(item.start_date).toLocaleDateString()} - {new Date(item.end_date).toLocaleDateString()}
+                          Período: {new Date(item.start_date).toLocaleDateString("es-CR")} -{" "}
+                          {new Date(item.end_date).toLocaleDateString("es-CR")}
                         </div>
                       </div>
                     ))}
@@ -565,31 +474,29 @@ function FacturacionPage() {
 
               <div className="border-t pt-2">
                 {(() => {
-                  let total = 0;
-                  for (const item of view.physicalProductItems ?? []) {
-                    total += (item.product?.unit_price ?? 0) * (item.amount ?? 1);
-                  }
-                  for (const item of view.serviceProductItems ?? []) {
-                    total += item.product?.unit_price ?? 0;
-                  }
+                  let t = 0;
+                  for (const item of view.physicalProductItems ?? [])
+                    t += (item.product?.unit_price ?? 0) * (item.amount ?? 1);
+                  for (const item of view.serviceProductItems ?? [])
+                    t += item.product?.unit_price ?? 0;
                   const client = view.physicalClient ?? view.legalClient;
-                  const isExoneratedView = client?.exonerated ?? false;
-                  const taxesView = isExoneratedView ? 0 : total * 0.13;
+                  const exo = client?.exonerated ?? false;
+                  const iva = exo ? 0 : t * 0.13;
                   return (
                     <>
                       <div className="flex justify-between text-sm">
                         <span>Subtotal</span>
-                        <span>₡{total.toFixed(2)}</span>
+                        <span>₡{t.toFixed(2)}</span>
                       </div>
-                      {!isExoneratedView && (
+                      {!exo && (
                         <div className="flex justify-between text-sm text-muted-foreground">
                           <span>IVA (13%)</span>
-                          <span>₡{taxesView.toFixed(2)}</span>
+                          <span>₡{iva.toFixed(2)}</span>
                         </div>
                       )}
                       <div className="flex justify-between font-bold mt-1">
                         <span>Total</span>
-                        <span>₡{(total + taxesView).toFixed(2)}</span>
+                        <span>₡{(t + iva).toFixed(2)}</span>
                       </div>
                     </>
                   );

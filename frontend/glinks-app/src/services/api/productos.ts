@@ -1,6 +1,5 @@
 import { http } from "../httpClient";
-import type { Product, PaginatedResponse } from "@/models";
-
+import type { Product } from "@/models";
 
 export type CreateProductInput = {
   name: string;
@@ -31,15 +30,11 @@ interface BackendSingleResponse<T> {
   data: T;
 }
 
-
 export const productosApi = {
   async list(page = 1, limit = 50) {
-    
     const response = await http.get<BackendListResponse<Product>>(
       `/productos?page=${page}&limit=${limit}`
     );
-    
-    
     return {
       data: response?.data ?? [],
       total: response?.pagination?.total ?? 0,
@@ -53,11 +48,10 @@ export const productosApi = {
     params.set("page", String(page));
     params.set("limit", String(limit));
     if (searchTerm) params.set("q", searchTerm);
-    
+
     const response = await http.get<BackendListResponse<Product>>(
       `/productos/search?${params.toString()}`
     );
-    
     return {
       data: response?.data ?? [],
       total: response?.pagination?.total ?? 0,
@@ -67,9 +61,7 @@ export const productosApi = {
   },
 
   async getById(id: string) {
-    const response = await http.get<BackendSingleResponse<Product>>(
-      `/productos/${id}`
-    );
+    const response = await http.get<BackendSingleResponse<Product>>(`/productos/${id}`);
     return response?.data;
   },
 
