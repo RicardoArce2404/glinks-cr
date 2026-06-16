@@ -121,7 +121,6 @@ export default function LoginPage() {
               </button>
             </div>
           </div>
-          </div>
           
           {error && (
             <p className="text-sm text-destructive bg-destructive/10 rounded-md px-3 py-2">
