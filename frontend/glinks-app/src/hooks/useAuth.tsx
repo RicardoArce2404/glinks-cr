@@ -37,7 +37,6 @@ function clearSession() {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  // Solo mostrar spinner si hay token guardado — evita el bloqueo infinito
   const [loading, setLoading] = useState(() => {
     return !!(
       localStorage.getItem(KEY_TOKEN) ?? sessionStorage.getItem(KEY_TOKEN)
@@ -60,7 +59,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setToken(savedToken);
 
-    // Timeout de seguridad: libera el loading si el servidor no responde en 8s
     const timeout = setTimeout(() => {
       clearSession();
       setLoading(false);
@@ -104,7 +102,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const json = await res.json();
 
       if (!res.ok || !json?.success) {
-        return { ok: false, error: json?.error ?? "Credenciales inválidas" };
+        // Extraer mensaje de error específico
+        let errorMsg = json?.error ?? "Credenciales inválidas";
+        
+        // Si hay errores de validación
+        if (json?.errors && Array.isArray(json.errors) && json.errors.length > 0) {
+          errorMsg = json.errors[0].message;
+        }
+        
+        return { ok: false, error: errorMsg };
       }
 
       const { token, user: apiUser } = json.data as {
@@ -112,7 +118,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user: User;
       };
 
-      // Asegurar que siempre haya un nombre para mostrar
       const userWithName: User = {
         ...apiUser,
         name: apiUser.name || (apiUser as any).username,
@@ -133,7 +138,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       return {
         ok: false,
-        error: err instanceof Error ? err.message : "Error de conexión",
+        error: err instanceof Error ? err.message : "Error de conexión con el servidor",
       };
     }
   };

@@ -19,14 +19,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
   } else {
-    // Intentar recuperar token del localStorage como respaldo
     const savedToken = localStorage.getItem("erp_token") ?? sessionStorage.getItem("erp_token");
     if (savedToken) {
       token = savedToken;
       headers["Authorization"] = `Bearer ${token}`;
     }
   }
-
 
   const response = await fetch(`${BASE_URL}${path}`, {
     ...options,
@@ -37,7 +35,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   try {
     json = await response.json();
-  } catch (error) {
+  } catch {
     json = null;
   }
 
@@ -47,36 +45,40 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
 
   if (!response.ok) {
-    throw new Error(
-      json?.error ?? json?.message ?? `Error del servidor (${response.status})`
-    );
+    // Extraer mensaje de error específico
+    let errorMessage = `Error del servidor (${response.status})`;
+    
+    if (json?.error) {
+      errorMessage = json.error;
+    } else if (json?.message) {
+      errorMessage = json.message;
+    } else if (json?.errors && Array.isArray(json.errors) && json.errors.length > 0) {
+      errorMessage = json.errors[0].message;
+    }
+
+    throw new Error(errorMessage);
   }
 
-  // Retornar todo el objeto json (contiene success, data, pagination)
   return json as T;
 }
 
 export const http = {
   get: <T>(path: string) => request<T>(path),
-
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, {
       method: "POST",
       body: body !== undefined ? JSON.stringify(body) : undefined,
     }),
-
   put: <T>(path: string, body?: unknown) =>
     request<T>(path, {
       method: "PUT",
       body: body !== undefined ? JSON.stringify(body) : undefined,
     }),
-
   patch: <T>(path: string, body?: unknown) =>
     request<T>(path, {
       method: "PATCH",
       body: body !== undefined ? JSON.stringify(body) : undefined,
     }),
-
   delete: <T>(path: string) =>
     request<T>(path, {
       method: "DELETE",

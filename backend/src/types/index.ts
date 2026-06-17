@@ -10,9 +10,9 @@ export interface AuthRequest extends Request {
   user?: JwtPayload;
 }
 
-export interface ApiResponse<T = unknown> {
+export interface ApiResponse<T = any> {
   success: boolean;
   data?: T;
   error?: string;
-  message?: string;
+  errors?: Array<{ field: string; message: string }>;
 }
