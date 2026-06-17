@@ -101,13 +101,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const json = await res.json();
 
-      // Si es 500, mostrar mensaje genérico
-      if (res.status === 500) {
-        return { ok: false, error: "Error interno del servidor. Intente más tarde." };
-      }
-
       if (!res.ok || !json?.success) {
-        return { ok: false, error: json?.error ?? "Credenciales inválidas" };
+        // Extraer mensaje de error específico
+        let errorMsg = json?.error ?? "Credenciales inválidas";
+        
+        // Si hay errores de validación
+        if (json?.errors && Array.isArray(json.errors) && json.errors.length > 0) {
+          errorMsg = json.errors[0].message;
+        }
+        
+        return { ok: false, error: errorMsg };
       }
 
       const { token, user: apiUser } = json.data as {
