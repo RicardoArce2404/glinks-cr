@@ -1,10 +1,10 @@
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, Navigate } from "react-router-dom";
 import { LayoutDashboard, Users, Wrench, Package, Receipt, LogOut, Wifi, WifiOff, Cloud, CloudOff, RefreshCw } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useSync } from "@/hooks/useSync";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { useState, type ReactNode } from "react";
+import { useState, type ReactNode, useEffect } from "react";
 import type { Role } from "@/models";
 
 interface NavItem {
@@ -28,6 +28,12 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const location = useLocation();
   const [open, setOpen] = useState(false);
 
+  // Si el usuario es técnico y está en Dashboard, redirigir a Clientes
+  useEffect(() => {
+    if (user?.role === "tecnico" && location.pathname === "/dashboard") {
+    }
+  }, [user, location]);
+
   const items = allItems.filter((item) => {
     if (!user) return false;
     return item.allowedRoles.includes(user.role);
@@ -35,6 +41,11 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
   const displayName = user?.name || user?.username || "Usuario";
   const roleLabel = user?.role === "admin" ? "Administrador" : "Técnico";
+
+  // Redirigir técnicos si intentan acceder a Dashboard
+  if (user?.role === "tecnico" && location.pathname === "/dashboard") {
+    return <Navigate to="/clientes" replace />;
+  }
 
   return (
     <div className="min-h-screen flex w-full bg-background text-foreground">
