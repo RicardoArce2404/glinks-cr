@@ -134,19 +134,6 @@ export default function LoginPage() {
               </div>
             </div>
             
-            <div className="flex items-center gap-2 pt-1">
-              <Checkbox
-                id="remember"
-                checked={remember}
-                onCheckedChange={(checked) => setRemember(!!checked)}
-                disabled={loading}
-                className="data-[state=checked]:bg-primary data-[state=checked]:border-primary"
-              />
-              <Label htmlFor="remember" className="text-sm font-normal cursor-pointer select-none">
-                Recordarme
-              </Label>
-            </div>
-            
             {error && (
               <div className="text-sm text-destructive bg-destructive/10 rounded-md px-3 py-2 animate-in slide-in-from-top-2 duration-300">
                 {error}
