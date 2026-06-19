@@ -21,8 +21,8 @@ import {
   type CreateMaintenanceInput,
 } from "@/services/api/mantenimientos";
 import { Plus, Loader2, Trash2, Package } from "lucide-react";
-import { toast } from "sonner";
 import { saveOfflineRecord, checkConnection } from "@/services/api/syncService";
+import { showSuccess, showError } from "@/lib/swal";
 
 interface MaintenanceProductInput {
   productId: string;
@@ -90,11 +90,11 @@ export default function MantenimientoPage() {
 
   const addProduct = () => {
     if (!selectedProductId) {
-      toast.error("Seleccione un producto");
+      showError("Seleccione un producto", "Error");
       return;
     }
     if (productAmount < 1) {
-      toast.error("La cantidad debe ser mayor a 0");
+      showError("La cantidad debe ser mayor a 0", "Error");
       return;
     }
 
@@ -162,11 +162,11 @@ export default function MantenimientoPage() {
     {
       onSuccess: () => {
         refetch();
-        toast.success("Mantenimiento registrado correctamente");
+        showSuccess("Mantenimiento registrado correctamente", "Mantenimiento registrado");
         setOpen(false);
         setForm({ description: "", clientId: "", clientType: null, products: [] });
       },
-      onError: (err) => toast.error(err.message),
+      onError: (err) => showError(err.message, "Error al registrar"),
     }
   );
 
@@ -178,15 +178,15 @@ export default function MantenimientoPage() {
 
   const submit = () => {
     if (!form.clientId) {
-      toast.error("Seleccione un cliente");
+      showError("Seleccione un cliente", "Error");
       return;
     }
     if (!form.description.trim()) {
-      toast.error("La descripción es requerida");
+      showError("La descripción es requerida", "Error");
       return;
     }
     if (form.products.length === 0) {
-      toast.error("Agregue al menos un producto utilizado");
+      showError("Agregue al menos un producto utilizado", "Error");
       return;
     }
     createMutation.mutate(form);

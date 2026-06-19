@@ -325,7 +325,6 @@ export default function ClientesPage() {
         showSuccess("Cliente eliminado exitosamente", "Cliente eliminado");
       },
       onError: (err, client) => {
-        // Asegurar que client existe antes de acceder a sus propiedades
         if (client && typeof client === 'object' && 'tipo' in client) {
           const c = client as UnifiedClient;
           if (err.message.includes("foreign key") || err.message.includes("constraint")) {
