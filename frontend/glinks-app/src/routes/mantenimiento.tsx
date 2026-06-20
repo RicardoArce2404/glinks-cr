@@ -21,8 +21,8 @@ import {
   type CreateMaintenanceInput,
 } from "@/services/api/mantenimientos";
 import { Plus, Loader2, Trash2, Package } from "lucide-react";
-import { toast } from "sonner";
 import { saveOfflineRecord, checkConnection } from "@/services/api/syncService";
+import { showSuccess, showError } from "@/lib/swal";
 
 interface MaintenanceProductInput {
   productId: string;
@@ -57,7 +57,9 @@ export default function MantenimientoPage() {
     () => productosApi.list(1, 200),
     []
   );
-  const products = productsPage?.data ?? [];
+  
+  const allProducts = productsPage?.data ?? [];
+  const physicalProducts = allProducts.filter((p) => p.billable === true);
 
   const { data: mantData, loading: loadingMant, refetch } = useFetch(
     () => fetchAllMaintenances(1, 200),
@@ -88,15 +90,15 @@ export default function MantenimientoPage() {
 
   const addProduct = () => {
     if (!selectedProductId) {
-      toast.error("Seleccione un producto");
+      showError("Seleccione un producto", "Error");
       return;
     }
     if (productAmount < 1) {
-      toast.error("La cantidad debe ser mayor a 0");
+      showError("La cantidad debe ser mayor a 0", "Error");
       return;
     }
 
-    const product = products.find((p) => p.id === selectedProductId);
+    const product = physicalProducts.find((p) => p.id === selectedProductId);
     if (!product) return;
 
     const existing = form.products.find((p) => p.productId === selectedProductId);
@@ -160,11 +162,11 @@ export default function MantenimientoPage() {
     {
       onSuccess: () => {
         refetch();
-        toast.success("Mantenimiento registrado correctamente");
+        showSuccess("Mantenimiento registrado correctamente", "Mantenimiento registrado");
         setOpen(false);
         setForm({ description: "", clientId: "", clientType: null, products: [] });
       },
-      onError: (err) => toast.error(err.message),
+      onError: (err) => showError(err.message, "Error al registrar"),
     }
   );
 
@@ -176,15 +178,15 @@ export default function MantenimientoPage() {
 
   const submit = () => {
     if (!form.clientId) {
-      toast.error("Seleccione un cliente");
+      showError("Seleccione un cliente", "Error");
       return;
     }
     if (!form.description.trim()) {
-      toast.error("La descripción es requerida");
+      showError("La descripción es requerida", "Error");
       return;
     }
     if (form.products.length === 0) {
-      toast.error("Agregue al menos un producto utilizado");
+      showError("Agregue al menos un producto utilizado", "Error");
       return;
     }
     createMutation.mutate(form);
@@ -298,7 +300,7 @@ export default function MantenimientoPage() {
                   <Select value={selectedProductId} onValueChange={setSelectedProductId}>
                     <SelectTrigger><SelectValue placeholder="Seleccione producto" /></SelectTrigger>
                     <SelectContent>
-                      {products.map((p) => (
+                      {physicalProducts.map((p) => (
                         <SelectItem key={p.id} value={p.id}>
                           {p.name} - ₡{p.unit_price}
                         </SelectItem>

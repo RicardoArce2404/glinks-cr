@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { Loader2 } from "lucide-react";
 import { AppLayout } from "@/components/AppLayout";
+import { RoleBasedRoute } from "@/components/RoleBasedRoute";
 
 import LoginPage from "./login";
 import DashboardPage from "./dashboard";
@@ -36,19 +37,44 @@ export function AppRoutes() {
     );
   }
 
+  // Redirigir técnicos de / a /clientes
+  const getDefaultRoute = () => {
+    if (!user) return "/login";
+    if (user.role === "tecnico") return "/clientes";
+    return "/dashboard";
+  };
+
   return (
     <Routes>
       <Route
         path="/login"
-        element={user ? <Navigate to="/dashboard" replace /> : <LoginPage />}
+        element={user ? <Navigate to={getDefaultRoute()} replace /> : <LoginPage />}
       />
-      <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
+      <Route path="/dashboard" element={
+        <ProtectedRoute>
+          <RoleBasedRoute allowedRoles={["admin"]}>
+            <DashboardPage />
+          </RoleBasedRoute>
+        </ProtectedRoute>
+      } />
       <Route path="/clientes" element={<ProtectedRoute><ClientesPage /></ProtectedRoute>} />
       <Route path="/mantenimiento" element={<ProtectedRoute><MantenimientoPage /></ProtectedRoute>} />
-      <Route path="/inventario" element={<ProtectedRoute><InventarioPage /></ProtectedRoute>} />
-      <Route path="/facturacion" element={<ProtectedRoute><FacturacionPage /></ProtectedRoute>} />
-      <Route path="/" element={<Navigate to={user ? "/dashboard" : "/login"} replace />} />
-      <Route path="*" element={<Navigate to={user ? "/dashboard" : "/login"} replace />} />
+      <Route path="/inventario" element={
+        <ProtectedRoute>
+          <RoleBasedRoute allowedRoles={["admin"]}>
+            <InventarioPage />
+          </RoleBasedRoute>
+        </ProtectedRoute>
+      } />
+      <Route path="/facturacion" element={
+        <ProtectedRoute>
+          <RoleBasedRoute allowedRoles={["admin"]}>
+            <FacturacionPage />
+          </RoleBasedRoute>
+        </ProtectedRoute>
+      } />
+      <Route path="/" element={<Navigate to={getDefaultRoute()} replace />} />
+      <Route path="*" element={<Navigate to={getDefaultRoute()} replace />} />
     </Routes>
   );
 }
